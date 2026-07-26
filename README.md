@@ -32,8 +32,9 @@ documentos y fragmentos relevantes ante 50 consultas en lenguaje natural.
 └── uv.lock
 ```
 
-`entrega/` es una **salida del pipeline**, no código fuente. Lo que trabajamos
-vive en `src/`; `src/indexar.py` escribe dentro de `entrega/base_vectorial/`.
+`entrega/` es la **salida del pipeline**, basicamente lo que vera el evaluador. 
+
+Lo trabajado vive en `src/`; `src/indexar.py` escribe dentro de `entrega/base_vectorial/`.
 
 ## Pipeline
 
@@ -55,8 +56,7 @@ Verificar que la GPU quedó activa:
 uv run --extra gpu python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-Para trabajar sin GPU usar `uv sync --extra cpu` en su lugar. Los dos extras son
-mutuamente excluyentes.
+Para trabajar sin GPU usar `uv sync --extra cpu` en su lugar.
 
 > **Usar siempre `--extra gpu` también en `uv run`.** `uv run` sincroniza el
 > entorno antes de ejecutar; sin el flag te revierte torch a la versión de CPU.
