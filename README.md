@@ -92,11 +92,9 @@ regenera antes de entregar, y cada vez que cambien las dependencias de runtime:
 uv export --extra cpu --no-dev --no-hashes --no-emit-project --emit-index-url -o entrega/requirements.txt
 ```
 
-- `--extra cpu` fija `torch==2.13.0+cpu`, que evita que el evaluador se descargue
-  ~3 GB de librerías CUDA en Linux sin necesitarlas.
-- `--no-dev` deja fuera `pymupdf`, `pandas`, Jupyter y demás herramientas nuestras.
-- `--emit-index-url` añade el índice de PyTorch, sin el cual `pip` no encuentra
-  la rueda `+cpu`.
+- `--extra cpu` fija `torch==2.13.0+cpu`, para no descargar librerias pesadas de CUDA.
+- `--no-dev` deja fuera `pymupdf`, `pandas`, Jupyter y demás herramientas inncesarias para el script.
+- `--emit-index-url` añade el índice de PyTorch, sin el cual `pip` no encuentra la rueda `+cpu`.
 
 ## Evaluación
 
