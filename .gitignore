@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Entorno gestionado por uv (.venv ya se autoignora, se deja por claridad)
+.venv/
+
+# Caché de modelos HuggingFace (varios GB)
+.cache/
+models/
+*.safetensors
+
+# Corpus crudo provisto por ADL: se ignora el contenido, se conserva la carpeta
+data/*
+!data/.gitkeep
+
+# Artefactos pesados del índice — descomenta si superan el límite de GitHub
+# entrega/base_vectorial/**/index.faiss
+
+# Sistema operativo / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

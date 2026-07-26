@@ -1,0 +1,56 @@
+[project]
+name = "codefest-adastra-2026"
+version = "0.1.0"
+description = "Base de conocimiento vectorial — CODEFEST Ad Astra 2026, Etapa 1"
+requires-python = ">=3.11"
+
+# Runtime: lo único que necesita entrega/generador.py para correr.
+# Todo lo que se añada aquí acaba en entrega/requirements.txt.
+dependencies = [
+    "faiss-cpu>=1.9",
+    "sentence-transformers>=5.0",
+    "numpy>=1.26",
+]
+
+# Variantes de torch. Ver [tool.uv.sources] más abajo.
+#   uv sync --extra gpu   -> ruedas CUDA 12.8 (Blackwell: 5060/5070)
+#   uv sync --extra cpu   -> ruedas de CPU
+[project.optional-dependencies]
+cpu = ["torch>=2.11"]
+gpu = ["torch>=2.11"]
+
+# Build: solo para construir el índice. El evaluador NO recibe nada de esto.
+[dependency-groups]
+dev = [
+    "pymupdf>=1.24",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.2",
+    "pandas>=2.2",
+    "openpyxl>=3.1",
+    "pysbd>=0.3.4",
+    "langdetect>=1.0.9",
+    "tqdm>=4.66",
+    "networkx>=3.3",
+    "ipykernel>=6.29",
+    "jupyterlab>=4.2",
+]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# El índice cu128 no publica ruedas para macOS: allí se usa siempre CPU.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu128", extra = "gpu", marker = "sys_platform != 'darwin'" },
+]
