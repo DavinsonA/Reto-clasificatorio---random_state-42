@@ -59,14 +59,14 @@ uv run --extra gpu python -c "import torch; print(torch.cuda.is_available())"
 Para trabajar sin GPU usar `uv sync --extra cpu` en su lugar. Los dos extras son
 mutuamente excluyentes.
 
-> **Usa siempre `--extra gpu` también en `uv run`.** `uv run` sincroniza el
+> **Usar siempre `--extra gpu` también en `uv run`.** `uv run` sincroniza el
 > entorno antes de ejecutar; sin el flag te revierte torch a la versión de CPU.
 
 ## Dependencias
 
-| Dónde | Para qué | Llega al evaluador |
+| Dónde | Descripción | Usado por evaluador |
 | --- | --- | --- |
-| `[project.dependencies]` | lo que `generador.py` necesita para correr | **sí** |
+| `[project.dependencies]` | usado en `generador.py` | **sí** |
 | `[dependency-groups] dev` | extracción, chunking, notebooks | no |
 | `[project.optional-dependencies]` | variante de torch (`cpu` / `gpu`) | no |
 
