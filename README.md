@@ -1,4 +1,4 @@
-# CODEFEST Ad Astra 2026 — Etapa 1
+# CODEFEST Ad Astra 2026 — Desafio Clasificatorio
 
 > Equipo `random_state = 42`
 
@@ -16,9 +16,9 @@ documentos y fragmentos relevantes ante 50 consultas en lenguaje natural.
 
 ```
 .
-├── src/                      # el pipeline (lo que escribimos nosotros)
-├── data/                     # corpus crudo de ADL — gitignored, no se versiona
-├── notebooks/                # exploración con Jupyter
+├── src/                      # Pipeline
+├── data/                     # Corpus crudo
+├── notebooks/                # Exploración con Jupyter
 ├── entrega/                  # ARTEFACTO: lo que se empaqueta y se entrega
 │   ├── resultados.jsonl      #   50 líneas: 3 documentos + 10 fragmentos por consulta
 │   ├── generador.py          #   reproduce resultados.jsonl a partir del índice
@@ -44,8 +44,7 @@ Extracción y limpieza → chunking → embeddings → índice FAISS → recuper
 
 Gestionado con [uv](https://docs.astral.sh/uv/). Requiere Python 3.11 o superior.
 
-Todos tenemos GPU NVIDIA, así que usamos el extra `gpu` (ruedas CUDA 12.8, que es
-lo que necesitan las Blackwell 5060/5070):
+Para usar la versión del enviroment usando CUDA:
 
 ```powershell
 uv sync --extra gpu
@@ -57,7 +56,7 @@ Verificar que la GPU quedó activa:
 uv run --extra gpu python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-Si trabajas sin GPU, usa `uv sync --extra cpu` en su lugar. Los dos extras son
+Para trabajar sin GPU usar `uv sync --extra cpu` en su lugar. Los dos extras son
 mutuamente excluyentes.
 
 > **Usa siempre `--extra gpu` también en `uv run`.** `uv run` sincroniza el
@@ -71,7 +70,8 @@ mutuamente excluyentes.
 | `[dependency-groups] dev` | extracción, chunking, notebooks | no |
 | `[project.optional-dependencies]` | variante de torch (`cpu` / `gpu`) | no |
 
-Al añadir una dependencia, pregúntate si `generador.py` la importa. Si no, va al
+
+Al añadir una dependencia, considerar si su uso también se dara en `generador.py`. Si no, va al
 grupo `dev`:
 
 ```powershell
@@ -105,7 +105,3 @@ uv export --extra cpu --no-dev --no-hashes --no-emit-project --emit-index-url -o
 | ---------- | -------- | ------------------ |
 | Fragmento  | NDCG@10  | 10 chunks ≤ 250 palabras |
 | Documento  | F1@3     | 3 `doc_id`         |
-
-Leaderboard unificado por Conteo de Borda sobre ambas tablas.
-
-Decisiones pendientes y riesgos conocidos: [`CONSIDERACIONES.md`](CONSIDERACIONES.md).
