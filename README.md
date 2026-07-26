@@ -15,10 +15,9 @@ documentos y fragmentos relevantes ante 50 consultas en lenguaje natural.
 ## Estructura
 
 ```
-.
-├── src/                      # Pipeline
-├── data/                     # Corpus crudo
-├── notebooks/                # Exploración con Jupyter
+├── src/                      # pipeline
+├── data/                     # corpus crudo
+├── notebooks/                # exploración con Jupyter
 ├── entrega/                  # ARTEFACTO: lo que se empaqueta y se entrega
 │   ├── resultados.jsonl      #   50 líneas: 3 documentos + 10 fragmentos por consulta
 │   ├── generador.py          #   reproduce resultados.jsonl a partir del índice
@@ -29,7 +28,7 @@ documentos y fragmentos relevantes ante 50 consultas en lenguaje natural.
 │       ├── encoder_1/        #   index.faiss + metadata.jsonl
 │       ├── encoder_2/        #   index.faiss + metadata.jsonl
 │       └── grafo/            #   grafo.graphml (bonus)
-├── pyproject.toml            # fuente de verdad de las dependencias
+├── pyproject.toml            # dependencias
 └── uv.lock
 ```
 
