@@ -191,7 +191,23 @@ Casi todos de AI_Index_Stanford (17 CSV + 4 XLSX). Los CSV de *clinical trials* 
 
 ### 3.5 Imágenes (9) y TXT (1)
 
-- **8 JPG + 1 AVIF**, todas de SWF_Counterspace. Son fotos de misiones espaciales, no infografías: el OCR daría ruido. Recomendación: `texto=""` y solo metadata. Nota técnica: **AVIF no lo abre Pillow sin `pillow-avif-plugin`.**
+- **8 JPG + 1 AVIF**, todas de SWF_Counterspace. ~~Son fotos de misiones espaciales, no infografías: el OCR daría ruido. Recomendación: `texto=""` y solo metadata.~~ Nota técnica: **AVIF no lo abre Pillow sin `pillow-avif-plugin`.**
+
+  ⚠️ **Corregido el 2026-08-04.** Esta conclusión era falsa y se tomó sin abrir los archivos.
+  Al inspeccionarlos, **4 de las 9 llevan texto**, y dos de ellas son el contenido más denso
+  del subconjunto:
+
+  | `doc_id` | Contenido real | Texto |
+  |---|---|---|
+  | F2-SWF-076 | Tabla 5-1: pruebas ASAT, 17 filas × 9 columnas (fecha, país, interceptor, altitud, basura rastreada) | mucho |
+  | F2-SWF-077 | Matriz de evaluación 2026: 13 países × 7 capacidades contraespaciales + leyenda | mucho |
+  | F2-SWF-089 | Gráfico de barras "ASAT Tests by Country (2026)", 4 países con cifras | poco, denso |
+  | F2-SWF-084 | Portada: *Global Counterspace Capabilities — An Open Source Assessment, 04/2026* | título |
+  | F2-SWF-065/066/067/068/071 | Retratos y fotos de archivo de la NASA | ninguno |
+
+  Son contenido de alto valor temático para el fenómeno 2. Con 4 archivos, transcribir a mano
+  es más rápido y más fiable que afinar un motor de OCR. Ver
+  `docs/guias/como-escribir-un-parser.md`.
 - **`SWF_full-text.txt`**, 1.686 palabras. Caso trivial.
 
 ---
