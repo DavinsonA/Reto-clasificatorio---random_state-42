@@ -1,0 +1,5 @@
+ASAT Tests by Country (2026): numero de pruebas antisatelite por pais. Grafico de barras sin etiquetas numericas; los valores se leen del eje y son aproximados.
+country: Russia. asat tests: aproximadamente 34
+country: USA. asat tests: aproximadamente 33
+country: China. asat tests: aproximadamente 13
+country: India. asat tests: aproximadamente 2
