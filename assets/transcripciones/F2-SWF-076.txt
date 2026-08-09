@@ -1,0 +1,18 @@
+Table 5-1 - Orbital debris created by ASAT tests in space. Fuente: Secure World Foundation, Global Counterspace Capabilities 2026.
+date: Oct. 20, 1968. country: Russia. interceptor: Cosmos 249, Cosmos 252 (IS). interceptor type: Co-orbital. target: Cosmos 248. tracked debris: 252. debris still on orbit: 71. total debris lifespan: 57.4 years
+date: Oct. 23, 1970. country: Russia. interceptor: Cosmos 374, Cosmos 375 (IS). interceptor type: Co-orbital. target: Cosmos 373. tracked debris: 147. debris still on orbit: 33. total debris lifespan: 55.4 years
+date: Feb. 25, 1971. country: Russia. interceptor: Cosmos 397 (IS). interceptor type: Co-orbital. target: Cosmos 394. tracked debris: 117. debris still on orbit: 43. total debris lifespan: 55 years
+date: Dec. 3, 1971. country: Russia. interceptor: Cosmos 462 (IS). interceptor type: Co-orbital. target: Cosmos 459. tracked debris: 28. debris still on orbit: 0. total debris lifespan: 3.3 years
+date: Dec. 17, 1976. country: Russia. interceptor: Cosmos 886 (IS). interceptor type: Co-orbital. target: Cosmos 880. tracked debris: 127. debris still on orbit: 54. total debris lifespan: 49.2 years
+date: Dec. 21, 1977. country: Russia. interceptor: Cosmos 970 (IS). interceptor type: Co-orbital. target: Cosmos 967. tracked debris: 121. debris still on orbit: 115. total debris lifespan: 48.2 years
+date: Apr. 18, 1980. country: Russia. interceptor: Cosmos 1174 (IS-M). interceptor type: Co-orbital. target: Cosmos 1171. tracked debris: 47. debris still on orbit: 4. total debris lifespan: 45.9 years
+date: Jun. 18, 1982. country: Russia. interceptor: Cosmos 1379 (IS-M). interceptor type: Co-orbital. target: Cosmos 1375. tracked debris: 62. debris still on orbit: 59. total debris lifespan: 43.7 years
+date: Sep. 13, 1985. country: US. interceptor: ASM-135. interceptor type: Direct Ascent. target: Solwind. intercept altitude: 530 km. tracked debris: 285. debris still on orbit: 0. total debris lifespan: 18.7 years
+date: Sep. 5, 1986. country: US. interceptor: Delta 180 PAS. interceptor type: Co-orbital. target: Delta 2 R/B. tracked debris: 18. debris still on orbit: 0. total debris lifespan: less than 1 year
+date: Dec. 26, 1994. country: Russia. interceptor: Naryad-V. interceptor type: Co-orbital. target: Unknown. tracked debris: 26. debris still on orbit: 22. total debris lifespan: 31.2 years
+date: Jan. 11, 2007. country: China. interceptor: SC-19. interceptor type: Direct Ascent. target: FY-1C. intercept altitude: 880 km. tracked debris: 3532. debris still on orbit: 2351. total debris lifespan: 19.1 years
+date: Feb. 20, 2008. country: US. interceptor: SM-3. interceptor type: Direct Ascent. target: USA 193. intercept altitude: 220 km. tracked debris: 175. debris still on orbit: 0. total debris lifespan: 1.7 years
+date: Mar. 27, 2019. country: India. interceptor: PDV-MK II. interceptor type: Direct Ascent. target: Microsat-R. intercept altitude: 300 km. tracked debris: 130. debris still on orbit: 0. total debris lifespan: 3.2 years
+date: Aug. - Dec. 2019. country: Russia. interceptor: Cosmos 2535. interceptor type: Co-orbital. target: Cosmos 2536. tracked debris: 30. debris still on orbit: 16. total debris lifespan: 6.5 years
+date: Nov. 15, 2021. country: Russia. interceptor: Nudol. interceptor type: Direct Ascent. target: Cosmos 1408. intercept altitude: 470 km. tracked debris: 1807. debris still on orbit: 5. total debris lifespan: 4.3 years
+Total de las 16 pruebas ASAT registradas. tracked debris: 6904. debris still on orbit: 2773

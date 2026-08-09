@@ -6,12 +6,19 @@ import logging
 from collections.abc import Iterable, Iterator
 
 from .core import DATA_ROOT, INDEX_PATH, CatalogEntry, RawDoc, clean, load_catalog
+from .images import extract as extract_image
 from .json_docs import extract as extract_json
 
 logger = logging.getLogger(__name__)
 
 # Anadir un formato es anadir una linea aqui.
-PARSERS = {"json": extract_json}
+PARSERS = {
+    "json": extract_json,
+    "jpg": extract_image,
+    "jpeg": extract_image,
+    "png": extract_image,
+    "avif": extract_image,
+}
 
 __all__ = [
     "DATA_ROOT",
