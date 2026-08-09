@@ -9,6 +9,7 @@ from .core import DATA_ROOT, INDEX_PATH, CatalogEntry, RawDoc, clean, load_catal
 from .csv_docs import extract as extract_csv
 from .images import extract as extract_image
 from .json_docs import extract as extract_json
+from .pdf_docs import extract as extract_pdf
 from .xlsx_docs import extract as extract_xlsx
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 # Anadir un formato es anadir una linea aqui.
 PARSERS = {
     "json": extract_json,
+    "pdf": extract_pdf,
     "csv": extract_csv,
     "xlsx": extract_xlsx,
     "jpg": extract_image,

@@ -23,7 +23,9 @@ def main() -> int:
     parser.add_argument("-o", "--salida", type=Path)
     args = parser.parse_args()
     logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr
+        level=logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
     )
 
     entries = load_catalog()
@@ -31,15 +33,17 @@ def main() -> int:
         entries = [entry for entry in entries if entry.formato in args.formato]
     docs = extract_all(entries[: args.limite] if args.limite else entries)
 
-    handle = args.salida.open("w", encoding="utf-8") if args.salida else None
     if args.salida:
         args.salida.parent.mkdir(parents=True, exist_ok=True)
+    handle = args.salida.open("w", encoding="utf-8") if args.salida else None
     count = words = 0
     for doc in docs:
         count += 1
         words += len(" ".join(doc.blocks).split())
         if handle:
-            handle.write(json.dumps(asdict(doc), ensure_ascii=False, default=str) + "\n")
+            handle.write(
+                json.dumps(asdict(doc), ensure_ascii=False, default=str) + "\n"
+            )
     if handle:
         handle.close()
 
