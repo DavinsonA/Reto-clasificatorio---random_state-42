@@ -8,10 +8,13 @@ from collections.abc import Iterable, Iterator
 from .core import DATA_ROOT, INDEX_PATH, CatalogEntry, RawDoc, clean, load_catalog
 from .images import extract as extract_image
 from .json_docs import extract as extract_json
+from .csv_docs import extract as extract_csv
+from .xlsx_docs import extract as extract_xlsx
 
 logger = logging.getLogger(__name__)
 
 # Anadir un formato es anadir una linea aqui.
+<<<<<<< HEAD
 PARSERS = {
     "json": extract_json,
     "jpg": extract_image,
@@ -19,6 +22,9 @@ PARSERS = {
     "png": extract_image,
     "avif": extract_image,
 }
+=======
+PARSERS = {"json": extract_json, "csv": extract_csv, "xlsx": extract_xlsx}
+>>>>>>> origin/Daniela
 
 __all__ = [
     "DATA_ROOT",

@@ -3,7 +3,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 .venv/
+
 .claude/
+
 .cache/
 models/
 *.safetensors
