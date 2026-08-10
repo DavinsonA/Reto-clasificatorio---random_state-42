@@ -9,6 +9,7 @@ from .core import DATA_ROOT, INDEX_PATH, CatalogEntry, RawDoc, clean, load_catal
 from .csv_docs import extract as extract_csv
 from .images import extract as extract_image
 from .json_docs import extract as extract_json
+from .pbf_docs import extract as extract_mapbox_vector
 from .pdf_docs import extract as extract_pdf
 from .xlsx_docs import extract as extract_xlsx
 
@@ -24,6 +25,7 @@ PARSERS = {
     "jpeg": extract_image,
     "png": extract_image,
     "avif": extract_image,
+    "pbf": extract_mapbox_vector,
 }
 
 __all__ = [
