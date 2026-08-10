@@ -164,54 +164,46 @@ computo (calidad imperfecta en
 escaneados con membretes institucionales) compensa frente a otras prioridades de la Fase 2
 antes del congelamiento del 7 de agosto.
 
-## Ejecucion pendiente — lista para correr (decisión: dejarla para el 2026-08-10)
+## OCR ejecutado sobre el corpus completo (2026-08-10) — resultado final
 
-Entorno de esta maquina ya configurado y verificado el 2026-08-09, **no hace falta repetir
-nada de instalacion**: Tesseract 5.5.3 instalado (winget), `spa`/`eng`/`por` en
-`TESSDATA_PREFIX` (persistido a nivel de usuario), y `C:\Program Files\Tesseract-OCR` añadido
-al `PATH` de usuario — verificado leyendo el registro directamente (no una sesion ya abierta),
-osea que una terminal nueva manana ya los ve sin pasos extra.
+Corrido con el comando de arriba, sin supervision, entorno persistido el dia anterior sin
+pasos extra. Resultado, comparado con la corrida sin OCR:
 
-**Un solo comando, en una PowerShell nueva** (para que tome el PATH persistido):
+| Metrica | Sin OCR | Con OCR |
+|---|---:|---:|
+| Documentos con `contenido_minimo` | **48** | **0** |
+| Documentos con alguna pagina reconocida por OCR | 0 | 381 |
+| Paginas reconocidas por OCR (de 3.381 candidatas) | 0 | 1.966 |
+| Palabras totales en bloques de PDF | 12.834.862 | **13.302.268** (+467.406) |
 
-```powershell
-cd "C:\Users\Davinson\Desktop\Vainas\Git\reto_clasificatorio_codefest_random_state_=_42"
-$env:PDF_OCR = "1"
-uv run --extra gpu python -m src.extract --formato pdf -o data/interim/raw_pdf_ocr.jsonl
-```
+**Los 48 documentos que antes no tenian ni una palabra recuperable ahora tienen contenido
+real.** De las 3.381 paginas candidatas (bajo el umbral de 40 palabras), el OCR gano en 1.966
+— el resto (1.415) probo OCR y perdio frente al nativo existente o salio vacio, y el
+comportamiento no destructivo se sostuvo: se quedaron con lo que ya tenian, no con nada.
 
-**Duracion esperada: ~130-155 minutos** (3.381 paginas candidatas, medido a ~2,3 s/pagina).
-Dejar corriendo sin supervision; no requiere GPU (Tesseract es CPU), `--extra gpu` es solo
-para que `uv run` no revierta `torch` a CPU en otras dependencias del entorno.
+Verificado con una muestra de 5 documentos al azar entre los 53 que quedaron 100 %
+reconocidos por OCR: la calidad es desigual pero util. Los oficios institucionales escaneados
+de Alertas_Tempranas (mismo formato en varios de los 48, membrete + logo) traen ruido de OCR
+sobre el membrete ("ps na Bogotá D.C.", "Oy oir Defensoría del Pueblo") pero el cuerpo
+sustantivo sale legible (fechas, nombres, "Ministra del Interior", numero de radicado).
+Documentos de texto corrido sin membrete complejo (CSIS, CSET) salieron limpios. Nadie
+reviso los 759 documentos linea por linea — es una muestra, no una auditoria completa.
 
-**Verificar al terminar:**
-
-```powershell
-uv run --extra gpu python -c "
-import json
-docs = [json.loads(l) for l in open('data/interim/raw_pdf_ocr.jsonl', encoding='utf-8')]
-minimo = sum(1 for d in docs if d['extra'].get('contenido_minimo'))
-ocr = sum(1 for d in docs if d['extra'].get('ocr'))
-paginas_ocr = sum(len(d['extra'].get('paginas_ocr', [])) for d in docs)
-print(len(docs), 'docs |', minimo, 'con bloque minimo (antes 48) |', ocr, 'docs con OCR |', paginas_ocr, 'paginas OCR (de 3.381 candidatas)')
-"
-```
-
-`minimo` deberia bajar de 48. Con el resultado real, reemplazar esta seccion por los numeros
-finales y mover el estado de este ADR a definitivo.
+**Decisión: se acepta el resultado.** El costo (una corrida nocturna sin supervision) fue
+bajo y la ganancia es real y verificada: 48 documentos que eran invisibles para la
+recuperacion ahora tienen texto indexable. `data/interim/raw_pdf_ocr.jsonl` queda como el
+volcado de referencia para la siguiente etapa (chunking), reemplazando cualquier volcado de
+PDF sin OCR.
 
 **Qué se pierde o queda pendiente.**
 
-- Los 48 documentos sin texto nativo alguno siguen con un bloque minimo hasta que se active
-  OCR. Son recuperables por titulo, no por contenido.
-- **OCR no se pudo probar con Tesseract real en este entorno de desarrollo**: el binario no
-  esta instalado (`pytesseract.TesseractNotFoundError`, subclase de `OSError`, capturada por
-  `_decide_page`). Las 3 muestras del encargo (F3-ALERTAS-364, F1-CSET-096, F2-CSIS-155) se
-  corrieron con `PDF_OCR=1` y degradaron de forma segura al comportamiento sin OCR — validacion
-  real del camino de fallo, no del reconocimiento en si. Los tests unitarios (`tests/test_pdf_docs.py`)
-  si cubren con mocks las cuatro ramas (mejor/peor/vacio/excepcion) sin depender del binario.
-  **Falta instalar Tesseract y volver a correr las 3 muestras** antes de decidir si el OCR
-  compensa el costo sobre el resto del corpus.
+- **Resuelto (2026-08-10):** los 48 documentos sin texto nativo alguno ya no existen como tal
+  — con `PDF_OCR=1` sobre el corpus completo, los 759 documentos quedaron con 0 en
+  `contenido_minimo`. Ver "OCR ejecutado sobre el corpus completo" mas arriba.
+- La calidad del OCR sobre escaneados con membrete institucional (Alertas_Tempranas) trae
+  ruido en encabezados/logos; el cuerpo sustantivo es legible. Verificado sobre una muestra de
+  5 de 53 documentos totalmente reconocidos, no sobre los 759 — no hay una auditoria de
+  calidad completa.
 - El titulo de PDF sin metadata de titulo incrustada cae al nombre de archivo — igual que el
   parser de JSON e imagenes; no siempre es legible (ver ADR de imagenes sobre IDs de NASA).
 - Quedan ~12 bloques con duplicacion residual por guiones internos: impacto marginal, no
@@ -223,6 +215,7 @@ finales y mover el estado de este ADR a definitivo.
 **Qué habria que revisar si esto resulta equivocado.** Si el chunker mide que las paginas son
 demasiado grandes o demasiado desiguales en tamaño para el presupuesto de 250 palabras, el
 ajuste va en el chunker, no aqui — el contrato de `RawDoc` es bloques en orden de lectura, la
-particion fina es responsabilidad de la siguiente etapa. Si al instalar Tesseract el OCR
-demuestra buena calidad sobre las paginas de baja densidad, medir si conviene tambien pasarlo
-por las imagenes sin transcripcion manual (ver ADR-002, riesgo residual ya anotado ahi).
+particion fina es responsabilidad de la siguiente etapa. El OCR ya demostro calidad util sobre
+las paginas de baja densidad (§ arriba): vale la pena revisar si conviene pasarlo tambien por
+las 5 imagenes sin transcripcion manual del ADR-002, ahora que el costo de instalacion ya esta
+pagado y el entorno queda listo.
