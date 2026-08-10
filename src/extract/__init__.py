@@ -11,6 +11,7 @@ from .images import extract as extract_image
 from .json_docs import extract as extract_json
 from .pbf_docs import extract as extract_mapbox_vector
 from .pdf_docs import extract as extract_pdf
+from .txt_docs import extract as extract_txt
 from .xlsx_docs import extract as extract_xlsx
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ PARSERS = {
     "png": extract_image,
     "avif": extract_image,
     "pbf": extract_mapbox_vector,
+    "txt": extract_txt,
 }
 
 __all__ = [

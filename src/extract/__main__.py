@@ -41,9 +41,7 @@ def main() -> int:
         count += 1
         words += len(" ".join(doc.blocks).split())
         if handle:
-            handle.write(
-                json.dumps(asdict(doc), ensure_ascii=False, default=str) + "\n"
-            )
+            handle.write(json.dumps(asdict(doc), ensure_ascii=False, default=str) + "\n")
     if handle:
         handle.close()
 

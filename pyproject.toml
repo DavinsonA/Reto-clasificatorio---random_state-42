@@ -35,6 +35,9 @@ dev = [
     "jupyterlab>=4.2",
     "geopandas>=1.1.4",
     "pyogrio>=0.13.0",
+    "pillow>=12.3.0",
+    "pytesseract>=0.3.13",
+    "pytest>=9.1.1",
 ]
 
 [tool.uv]

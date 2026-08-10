@@ -43,15 +43,28 @@ def extract(entry: CatalogEntry) -> RawDoc:
     )
 
 
-def ocr(source: Path | Any, lang: str = OCR_LANG) -> list[str]:
-    """Lee el texto de una imagen, sea una ruta o una imagen ya en memoria."""
+def ocr(
+    source: Path | Any,
+    lang: str = OCR_LANG,
+    *,
+    scale: float = OCR_SCALE,
+    config: str = OCR_CONFIG,
+) -> list[str]:
+    """Lee el texto de una imagen, sea una ruta o una imagen ya en memoria.
+
+    `scale` reescala antes de reconocer (util si `source` no viene ya a una
+    resolucion cercana a 300 ppp, que es lo que Tesseract espera). El PDF
+    rasteriza sus paginas a 300 ppp el mismo y pasa `scale=1` para no escalar
+    dos veces.
+    """
     import pytesseract
     from PIL import Image
 
     image = Image.open(source) if isinstance(source, (str, Path)) else source
     grey = image.convert("L")
-    scaled = grey.resize((grey.width * OCR_SCALE, grey.height * OCR_SCALE))
-    text = pytesseract.image_to_string(scaled, lang=lang, config=OCR_CONFIG)
+    if scale != 1:
+        grey = grey.resize((int(grey.width * scale), int(grey.height * scale)))
+    text = pytesseract.image_to_string(grey, lang=lang, config=config)
     if image is not source:
         image.close()
     return text.splitlines()

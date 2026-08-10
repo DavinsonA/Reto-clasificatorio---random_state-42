@@ -22,10 +22,11 @@ from .core import CatalogEntry, RawDoc, clean
 
 # Campos técnicos que no entran al texto, para reducir tokens.
 _SKIP_COLUMNS = {
-    "geometry", #Muchas coordenadas que generan ruido al corpus
-    "fid", #Identificador sin aporte
-    "mvt_id" #Identificador sin aporte
+    "geometry",  # Muchas coordenadas que generan ruido al corpus
+    "fid",  # Identificador sin aporte
+    "mvt_id",  # Identificador sin aporte
 }
+
 
 def extract(entry: CatalogEntry) -> RawDoc:
     """Convierte un PBF del corpus en `RawDoc`."""
@@ -48,18 +49,14 @@ def extract(entry: CatalogEntry) -> RawDoc:
             layer=nombre_capa,
         )
 
-        columnas[nombre_capa] = [
-            str(col)
-            for col in gdf.columns
-        ]
+        columnas[nombre_capa] = [str(col) for col in gdf.columns]
 
         geometry_types: dict[str, int] = {}
 
         if "geometry" in gdf.columns and not gdf.empty:
             geometry_types = {
                 str(tipo): int(cantidad)
-                for tipo, cantidad
-                in gdf.geometry.geom_type.value_counts().items()
+                for tipo, cantidad in gdf.geometry.geom_type.value_counts().items()
             }
 
         capas_extra.append(
@@ -93,10 +90,7 @@ def extract(entry: CatalogEntry) -> RawDoc:
 
     # Un PBF puede existir correctamente pero estar vacío.
     if not blocks:
-        blocks = [
-            f"{entry.path.stem}. Observatorio: "
-            f"{entry.observatory}"
-        ]
+        blocks = [f"{entry.path.stem}. Observatorio: {entry.observatory}"]
         extra["contenido_minimo"] = True
 
     return RawDoc(
@@ -127,9 +121,7 @@ def _row_to_block(row: Any) -> str:
         if not valor_limpio:
             continue
 
-        pares.append(
-            f"{columna}: {valor_limpio}"
-        )
+        pares.append(f"{columna}: {valor_limpio}")
 
     return " | ".join(pares)
 
@@ -148,13 +140,7 @@ def _clean_value(value: Any) -> str:
         pass
 
     if isinstance(value, (list, tuple)):
-        values = [
-            clean(str(item))
-            for item in value
-            if item not in (None, "")
-        ]
-        return ", ".join(
-            value for value in values if value
-        )
+        values = [clean(str(item)) for item in value if item not in (None, "")]
+        return ", ".join(value for value in values if value)
 
     return clean(str(value))

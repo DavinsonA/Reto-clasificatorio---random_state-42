@@ -1,10 +1,16 @@
-"""Parser de los 759 PDF del corpus: extraccion por pagina, con deteccion de escaneados.
+"""Parser de los 759 PDF del corpus: extraccion por pagina, OCR por pagina.
 
-759 PDF nativos + 48 sin capa de texto ("son una foto de texto"), ver
-`docs/sondeo-corpus.md` §3.2. El OCR clasico es opcional y esta desactivado por
-defecto: no bloquea el baseline de la Fase 1 (CLAUDE.md §6) y evita depender de un
-binario del sistema (Tesseract) hasta que el equipo decida si vale la pena, con
-numero en mano (48 documentos, 582 paginas -> riesgo R3 del sondeo).
+La decision nativo-vs-OCR es **por pagina, no por documento**: PDF con
+promedio bajo de palabras en sus primeras paginas pueden tener paginas
+densas mas adelante (F2-CSIS-155: 4 palabras nativas en 5 paginas de muestra,
+pero paginas 6-9 con texto real). Clasificar el documento entero como
+"escaneado" y descartar sus paginas borraba ese texto sin necesidad. Ver
+`docs/decisions/003-parser-pdf.md`.
+
+El OCR (Tesseract, no generativo) es opcional (`PDF_OCR=1`) y nunca
+destructivo: una pagina solo cambia de nativo a OCR si el OCR produjo texto
+no vacio y con mas palabras que el nativo. Si el OCR esta apagado, falla o
+no mejora, el nativo se conserva tal cual, por corto que sea.
 """
 
 from __future__ import annotations
@@ -26,18 +32,17 @@ logger = logging.getLogger(__name__)
 # una palabra que se repite de verdad en el idioma.
 _DOUBLED_WORD = re.compile(r"\b(\w{2,})\1\b")
 
-# Por debajo de este promedio de palabras/pagina en la muestra inicial, el PDF se
-# trata como escaneado: no hay texto extraible, hay una foto de texto (sondeo §3.2).
+# Trigger por pagina: por debajo de este numero de palabras nativas, la pagina
+# es candidata a OCR (si esta activado) pero nunca se descarta si no lo esta.
 MIN_WORDS_PAGE = 40
-# Paginas iniciales que se muestrean para decidir si un PDF esta escaneado. Mismo
-# criterio que uso el sondeo del corpus para llegar a la cifra de 48 documentos.
-SAMPLE_PAGES = 5
 
 # OCR clasico (Tesseract, no generativo) opcional. `PDF_OCR=1` lo activa una vez
 # que el equipo decida pagar el costo de instalar el binario (ver guia de parsers,
-# §7.4). Import perezoso: el modulo se puede usar sin pytesseract instalado.
+# tecnica §7.4). Import perezoso: el modulo se puede usar sin pytesseract instalado.
 OCR_ENABLED = os.environ.get("PDF_OCR") == "1"
 OCR_LANGS = "spa+eng+por"  # los tres idiomas del corpus (sondeo §1.1)
+OCR_DPI = 300  # rasteriza al ppp que Tesseract espera; `images.ocr` no vuelve a escalar
+OCR_CONFIG = "--psm 3"  # segmentacion automatica: hay columnas, tablas e infografias mixtas
 
 
 def extract(entry: CatalogEntry) -> RawDoc:
@@ -48,18 +53,28 @@ def extract(entry: CatalogEntry) -> RawDoc:
 
     with fitz.open(entry.path) as pdf:
         title = clean(_pdf_title(pdf, entry))
-        # sort=True ordena por posicion en la pagina: mejor orden de lectura que el
-        # orden crudo del content stream en PDF con columnas (guia tecnica §1).
-        pages = [_dedupe_glyphs(page.get_text("text", sort=True)) for page in pdf]
-        extra["num_paginas"] = len(pages)
+        pages: list[str] = []
+        ocr_pages: list[int] = []
+        low_density_pages: list[int] = []
+        for page in pdf:
+            text, used_ocr, low_density = _decide_page(page, OCR_ENABLED)
+            pages.append(text)
+            if used_ocr:
+                ocr_pages.append(page.number)
+            if low_density:
+                low_density_pages.append(page.number)
 
-        if _is_scanned(pages):
-            extra["escaneado"] = True
-            pages = _ocr_pages(pdf) if OCR_ENABLED else []
-            if OCR_ENABLED:
-                extra["ocr"] = "tesseract"
+    extra["num_paginas"] = len(pages)
+    if low_density_pages:
+        # Metadata agregada, no decide que bloques existen (ver docstring del modulo).
+        extra["escaneado"] = True
+        extra["paginas_baja_densidad"] = low_density_pages
+    if ocr_pages:
+        extra["paginas_ocr"] = ocr_pages
+        extra["paginas_nativas"] = [i for i in range(len(pages)) if i not in ocr_pages]
+        extra["ocr"] = "tesseract"
 
-    blocks = [block for block in map(clean, pages) if block]
+    blocks = [page for page in pages if page]
     if not blocks:
         # Un doc_id sin chunk no se puede recuperar jamas: F1@3 perdido (R4).
         blocks = [f"{title or entry.path.stem}. Observatorio: {entry.observatory}"]
@@ -76,18 +91,32 @@ def extract(entry: CatalogEntry) -> RawDoc:
     )
 
 
+def _decide_page(page: Any, ocr_enabled: bool) -> tuple[str, bool, bool]:
+    """Decide el texto de una pagina: nativo salvo que el OCR sea claramente mejor.
+
+    Devuelve `(texto, uso_ocr, baja_densidad)`. Nunca deja una pagina sin el
+    texto nativo que tenia a menos que el OCR haya producido algo mejor: si
+    esta apagado, falla o no supera al nativo, el nativo se conserva intacto.
+    """
+    native = clean(_dedupe_glyphs(page.get_text("text", sort=True)))
+    low_density = len(native.split()) < MIN_WORDS_PAGE
+    if not low_density or not ocr_enabled:
+        return native, False, low_density
+
+    try:
+        recognized = clean(" ".join(_ocr_page(page)))
+    except (ImportError, OSError) as error:
+        logger.warning("sin OCR | pagina %d | %s", page.number, error)
+        return native, False, low_density
+
+    if recognized and len(recognized.split()) > len(native.split()):
+        return recognized, True, low_density
+    return native, False, low_density
+
+
 def _dedupe_glyphs(text: str) -> str:
     """Colapsa la negrita sintetica: `RESDALRESDAL` -> `RESDAL` (ver `_DOUBLED_WORD`)."""
     return _DOUBLED_WORD.sub(r"\1", text)
-
-
-def _is_scanned(pages: list[str]) -> bool:
-    """Detecta un PDF escaneado por baja densidad de palabras en las primeras paginas."""
-    sample = pages[:SAMPLE_PAGES]
-    if not sample:
-        return True
-    avg_words = sum(len(page.split()) for page in sample) / len(sample)
-    return avg_words < MIN_WORDS_PAGE
 
 
 def _pdf_title(pdf: Any, entry: CatalogEntry) -> str:
@@ -96,19 +125,17 @@ def _pdf_title(pdf: Any, entry: CatalogEntry) -> str:
     return meta_title.strip() or entry.path.stem.replace("_", " ")
 
 
-def _ocr_pages(pdf: Any) -> list[str]:
-    """OCR pagina a pagina con Tesseract. Requiere el binario instalado en el sistema."""
+def _ocr_page(page: Any) -> list[str]:
+    """OCR de una sola pagina, rasterizada a `OCR_DPI`. Requiere Tesseract instalado."""
     import fitz
-    import pytesseract
     from PIL import Image
 
-    texts = []
-    for page in pdf:
-        # Las paginas de PDF rondan 72-96 ppp; Tesseract espera ~300. Escalar antes
-        # de reconocer mejora el resultado mas que cualquier otro ajuste (guia §7.4).
-        pixmap = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72))
-        image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-        # --psm 6: bloque uniforme de texto: mejor que el modo de pagina completa
-        # por defecto para informes con figuras y tablas mezcladas.
-        texts.append(pytesseract.image_to_string(image, lang=OCR_LANGS, config="--psm 6"))
-    return texts
+    from .images import ocr as image_ocr
+
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(OCR_DPI / 72, OCR_DPI / 72))
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    try:
+        # scale=1: la pagina ya esta rasterizada a OCR_DPI, no se reescala otra vez.
+        return image_ocr(image, lang=OCR_LANGS, scale=1, config=OCR_CONFIG)
+    finally:
+        image.close()

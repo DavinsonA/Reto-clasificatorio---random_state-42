@@ -61,6 +61,68 @@ Para trabajar sin GPU usar `uv sync --extra cpu` en su lugar.
 > **Usar siempre `--extra gpu` también en `uv run`.** `uv run` sincroniza el
 > entorno antes de ejecutar; sin el flag te revierte torch a la versión de CPU.
 
+## OCR opcional (Tesseract)
+
+Los parsers de PDF e imagenes (`src/extract/pdf_docs.py`, `src/extract/images.py`) pueden usar
+OCR clasico (Tesseract, no generativo — cumple la prohibicion de decoders de `CLAUDE.md` §2.1)
+para paginas o imagenes sin texto extraible. Esta **apagado por defecto**; se activa con:
+
+```powershell
+$env:PDF_OCR = "1"
+uv run --extra gpu python -m src.extract --formato pdf
+```
+
+```bash
+PDF_OCR=1 uv run --extra gpu python -m src.extract --formato pdf
+```
+
+`pillow` y `pytesseract` ya estan en `[dependency-groups] dev` (build-time, nunca llegan a
+`generador.py`), pero **Tesseract es ademas un binario del sistema operativo** que `pip` no
+instala. Sin el binario, el pipeline sigue corriendo — cada pagina/imagen conserva su texto
+nativo o cae al bloque minimo, nunca falla (ver `docs/decisions/003-parser-pdf.md`).
+
+Probado en este repo (2026-08-09, ver `docs/decisions/003-parser-pdf.md`): las 3 muestras de
+PDF escaneado pasaron de un bloque minimo de 4 palabras a cientos o miles de palabras reales.
+
+Para instalar el binario y los paquetes de idioma (español, inglés, portugués — los tres del
+corpus):
+
+**Windows — via winget (recomendado, sin instalador manual):**
+
+```powershell
+winget install --id tesseract-ocr.tesseract
+```
+
+El paquete de winget solo trae el idioma ingles. **Si no tienes permisos de administrador**
+para escribir en `C:\Program Files\Tesseract-OCR\tessdata\` (el caso mas comun en un equipo
+compartido), no lo intentes con `sudo`/elevacion: usa una carpeta propia y la variable de
+entorno `TESSDATA_PREFIX`, que Tesseract respeta sin tocar la instalacion del sistema:
+
+```powershell
+mkdir $env:LOCALAPPDATA\tessdata
+Copy-Item "C:\Program Files\Tesseract-OCR\tessdata\eng.traineddata" $env:LOCALAPPDATA\tessdata\
+Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata" -OutFile "$env:LOCALAPPDATA\tessdata\spa.traineddata"
+Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/por.traineddata" -OutFile "$env:LOCALAPPDATA\tessdata\por.traineddata"
+
+$env:PATH = "C:\Program Files\Tesseract-OCR;" + $env:PATH
+$env:TESSDATA_PREFIX = "$env:LOCALAPPDATA\tessdata"
+tesseract --list-langs   # debe listar eng, spa, por
+```
+
+Alternativa con instalador grafico (trae los 3 idiomas marcables en el propio instalador, pero
+si requiere permisos de administrador):
+[UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki).
+
+**Linux (Debian/Ubuntu):**
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng tesseract-ocr-por
+```
+
+En todos los casos, `PATH`/`TESSDATA_PREFIX` son variables de entorno de cada maquina, nunca
+rutas escritas en el código — `src/extract/images.py` y `src/extract/pdf_docs.py` solo llaman
+`tesseract` por nombre.
+
 ## Dependencias
 
 | Dónde | Descripción | Usado por evaluador |

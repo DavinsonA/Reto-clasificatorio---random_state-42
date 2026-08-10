@@ -167,6 +167,14 @@ Se abrieron **los 759**: **0 corruptos**. Densidad típica 280–390 palabras/p�
 
 Sobre si vale la pena el OCR: 582 páginas es un volumen manejable, pero `pytesseract` exige instalar el binario de Tesseract y 45 de los 48 son de un mismo observatorio de F3. **Es una decisión de coste/beneficio con número concreto: 48 documentos de 1.826, un 2,6 %.** Si se omite el OCR, esos 48 `doc_id` quedan sin recuperar; conviene al menos indexar su título y su metadata del índice para que no sean invisibles.
 
+⚠️ **Precisado el 2026-08-09 (ADR-003).** Los 48 documentos sin ninguna palabra extraíble
+siguen siendo 48 — ese número no cambió. Lo que sí cambió es que la clasificación de
+"escaneado" pasó de ser un promedio sobre las primeras 5 páginas del documento a una decisión
+**por página, sobre las 36.828 páginas del corpus completo**: un documento largo con una sola
+página de portada casi en blanco también queda marcado, así que la cuenta agregada de
+documentos "con alguna página de baja densidad" es hoy 458, no 66 — son cosas distintas, no una
+contradicción. Ninguna página con texto nativo se descarta por la clasificación del documento.
+
 Tamaños extremos a considerar: ILIA_Latam tiene PDFs de ~189 páginas y 8,5 MB de mediana.
 
 ### 3.3 PBF — 73 archivos: son **vector tiles**, no OpenStreetMap
@@ -188,6 +196,13 @@ Realismo: 73 tiles con atributos de mapa difícilmente responden consultas en le
 Casi todos de AI_Index_Stanford (17 CSV + 4 XLSX). Los CSV de *clinical trials* tienen 27 columnas (`Rank`, `NCT Number`, `Title`, `Acronym`, …); los XLSX son estrechos, de 2–3 columnas (`pmid`/`title`/`journal`, `Author`/`Author ID`).
 
 **Estrategia:** conforme a §2.1, cada fila es una unidad de fragmentación con formato `columna: valor`, omitiendo celdas vacías. Cuidado con dos cosas: los XLSX de 2 columnas tipo `Author | Author ID` **no tienen contenido semántico recuperable** —son tablas de identificadores— y generarían miles de chunks basura que compiten con contenido real en el índice. Conviene filtrar por columnas textuales antes de decidir si un tabular entra.
+
+  ⚠️ **Corregido el 2026-08-09 (ADR-005).** La afirmación de que estos XLSX "no tienen
+  contenido semántico recuperable" era una generalización excesiva: solo `Author ID`,
+  `Conference ID` y (en el XLSX de lit-covid) `pmid` son identificadores sin valor de búsqueda.
+  `Author`, `Conference Name`, `title`, `journal`, `Fields` y `Status` sí lo tienen y se
+  conservan. La estrategia final excluye solo esas tres columnas por whitelist explícita, no el
+  archivo ni la fila entera.
 
 ### 3.5 Imágenes (9) y TXT (1)
 
