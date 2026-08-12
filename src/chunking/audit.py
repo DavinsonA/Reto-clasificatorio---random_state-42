@@ -108,6 +108,7 @@ class ChunkingAudit:
     lost_words: int = 0
     duplicated_words: int = 0
     language_fallbacks: Counter = field(default_factory=Counter)
+    documents_with_language_detection: int = 0
     lossy_segmentations: int = 0
     by_format: dict[str, FormatStats] = field(default_factory=lambda: defaultdict(FormatStats))
     chunks_by_document: Counter = field(default_factory=Counter)
@@ -159,8 +160,10 @@ class ChunkingAudit:
                 self.conservation_failures.append(conservation)
 
         if telemetry is not None:
-            if telemetry.language is not None and telemetry.language.fallback:
-                self.language_fallbacks[telemetry.language.detected] += 1
+            if telemetry.language is not None:
+                self.documents_with_language_detection += 1
+                if telemetry.language.fallback:
+                    self.language_fallbacks[telemetry.language.detected] += 1
             self.lossy_segmentations += telemetry.lossy_blocks
 
     def summary(self) -> dict[str, Any]:
@@ -216,7 +219,11 @@ class ChunkingAudit:
                 "share_top_5": round(sum(c for _, c in top[:5]) / total, 4),
                 "share_top_10": round(sum(c for _, c in top[:10]) / total, 4),
             },
+            # La deteccion de idioma es perezosa: solo corre en documentos con
+            # algun bloque por encima de `max_words`. `language_fallbacks` NO es
+            # el numero de documentos del corpus en ese idioma.
             "segmentation": {
+                "documents_with_language_detection": self.documents_with_language_detection,
                 "language_fallbacks": dict(self.language_fallbacks),
                 "lossy_segmentations": self.lossy_segmentations,
             },

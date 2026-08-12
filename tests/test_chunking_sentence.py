@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.chunking import DEFAULT_CONFIG
 from src.chunking.sentence import choose_language, normalized, split_sentences
 
@@ -38,6 +40,26 @@ def test_la_comilla_de_cierre_no_se_separa_de_su_palabra():
     assert "".join(oraciones) == texto
     assert len(" ".join(oraciones).split()) == len(texto.split())
     assert all(not pieza.lstrip().startswith("”") for pieza in oraciones)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Ver la tabla (Fig. 3.) y seguir. Otra frase aqui.",
+        'He said "done." Then he left. Final line here.',
+        "The U.S. Army moved. Next sentence now.",
+        "Use e.g. this one. Another sentence follows.",
+        "See No. 5 in the list. And then this.",
+        "El informe es de 2026. La siguiente frase sigue.",
+        "Image Type: Body Scans: MRI, CT.; Difficulty: Hard. Chapter 2 Preview.",
+        "space will provide the advantage.” 676 April 21, 2012, ver el informe. Otra frase.",
+    ],
+)
+def test_no_se_inventan_ni_se_parten_palabras(texto):
+    oraciones = split_sentences(texto, "en")
+    assert oraciones is not None
+    assert "".join(oraciones) == texto
+    assert " ".join(oraciones).split() == texto.split()
 
 
 def test_portugues_cae_al_ruleset_espanol_y_queda_marcado():

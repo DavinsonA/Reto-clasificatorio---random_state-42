@@ -25,8 +25,11 @@ Toda variante del pipeline se registra aquí antes de adoptarse. Sin fila, no en
 
 ## Registro
 
-**Pendiente de recuperación.** No hay encoder, ni índice, ni conjunto de consultas de desarrollo:
-ninguna variante de chunking se puede puntuar todavía. El chunking implementado (ADR-007) trae un
+**Pendiente de recuperación.** Existe un development set interno
+(`data/interim/benchmarks/prechunk/devset.jsonl`: 9 consultas, 8 con gold, 15 fragmentos, 11
+documentos, todos PDF, F1 y F3, **sin F2**; limitaciones en research §4.1), pero **no hay encoder,
+ni índice, ni pipeline de recuperación**, así que ninguna variante de chunking se puede puntuar
+todavía. El chunking implementado (ADR-007) trae un
 perfil **estructural** (número de chunks, palabras por chunk, concentración documental,
 conservación de contenido) que se regenera con:
 

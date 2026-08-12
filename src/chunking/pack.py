@@ -31,9 +31,11 @@ def pack_units(
     """Agrupa unidades consecutivas del mismo grupo en chunks.
 
     Un cambio de `group_key` (hoja de XLSX, capa de PBF) cierra el chunk actual:
-    nunca se mezclan dos hojas ni dos capas. Una unidad que por si sola supera el
-    presupuesto se emite sola y sin vecinos (`oversized`), y actua ademas como
-    frontera: nada se empaqueta a traves de ella.
+    nunca se mezclan dos hojas ni dos capas. Con `cross_block_packing=False`
+    tambien cierra un cambio de bloque, que es la politica E1 del research. Una
+    unidad que por si sola supera el presupuesto se emite sola y sin vecinos
+    (`oversized`), y actua ademas como frontera: nada se empaqueta a traves de
+    ella.
 
     Raises:
         ValueError: `config.max_tokens` esta fijado pero no se inyecto contador.
@@ -45,15 +47,20 @@ def pack_units(
     current: list[Unit] = []
     current_words = 0
     group: str | None = None
+    block: int | None = None
 
     for unit in units:
         oversized = _is_oversized(unit, config, token_counter)
-        if oversized or (group is not None and unit.group_key != group):
+        boundary = group is not None and (
+            unit.group_key != group
+            or (not config.cross_block_packing and unit.block_index != block)
+        )
+        if oversized or boundary:
             if current:
                 pending.append(tuple(current))
                 current, current_words = [], 0
             yield from _close(pending, config, token_counter)
-        group = unit.group_key
+        group, block = unit.group_key, unit.block_index
 
         if oversized:
             yield (unit,)

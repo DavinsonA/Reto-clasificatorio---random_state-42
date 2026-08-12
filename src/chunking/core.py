@@ -63,6 +63,11 @@ class ChunkingConfig:
     soft_min_words: int = 120
     max_words: int = 250
     overlap_units: int = 0
+    # False cierra el chunk en cada frontera de bloque. Es la forma explicita de
+    # correr E1 (packing solo dentro del bloque) y, con `max_words` por encima
+    # del bloque mas largo, de reproducir E0 (bloque = chunk). Ver
+    # `block_as_chunk_config`.
+    cross_block_packing: bool = True
     output_target_words: int = 240
     output_max_words: int = 250
     # Presupuesto de tokens del encoder. Sin encoder elegido va en None y el
@@ -98,6 +103,30 @@ class ChunkingConfig:
 
 
 DEFAULT_CONFIG = ChunkingConfig()
+
+# Techo por encima del bloque mas largo del corpus (9.235 palabras, `F1-AIINDEX-041`):
+# con el no se segmenta ningun bloque y ninguna unidad queda marcada oversized.
+NO_SPLIT_WORDS = 100_000
+
+
+def block_as_chunk_config(**overrides: Any) -> ChunkingConfig:
+    """Config de la politica E0 del research: **un bloque, un chunk**.
+
+    Es la referencia contra la que se comparan las demas politicas, asi que
+    tiene que ser explicita y reproducible, no el efecto lateral de unos
+    presupuestos numericos extremos.
+
+    Combina las dos condiciones necesarias: sin packing entre bloques y sin
+    segmentacion por oraciones (ningun bloque supera el techo).
+    """
+    parameters: dict[str, Any] = {
+        "target_words": NO_SPLIT_WORDS,
+        "soft_min_words": 1,
+        "max_words": NO_SPLIT_WORDS,
+        "cross_block_packing": False,
+    }
+    parameters.update(overrides)
+    return ChunkingConfig(**parameters)
 
 
 @dataclass(frozen=True, slots=True)

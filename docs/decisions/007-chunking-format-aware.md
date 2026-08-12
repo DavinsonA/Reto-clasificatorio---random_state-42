@@ -44,10 +44,18 @@ Restricciones que acotan el diseño:
 
 ## Decisión
 
-**Sin medición de recuperación**: no hay encoder, ni índice, ni consultas de desarrollo. Lo que
-sustenta esta decisión es el perfil estructural del corpus y las reglas duras de la
-especificación, no una fila de `docs/ablaciones.md`. **La deuda está marcada**: el objetivo de 200
-palabras es un punto de partida razonado, no un óptimo demostrado.
+**Sin medición de recuperación.** Existe un development set interno
+(`data/interim/benchmarks/prechunk/devset.jsonl`: 9 consultas, 8 con gold, 15 fragmentos gold, 11
+documentos, **todos PDF**, fenómenos 1 y 3, sin cobertura de F2), pero **todavía no existe el
+pipeline encoder → embeddings → índice FAISS → recuperación** que haría falta para comparar esta
+política con métricas de recuperación sobre él. Lo que sustenta esta decisión es el perfil
+estructural del corpus y las reglas duras de la especificación, no una fila de
+`docs/ablaciones.md`. **La deuda está marcada**: el objetivo de 200 palabras es un punto de partida
+razonado, no un óptimo demostrado.
+
+Cuando ese devset se use, hay que leer antes sus limitaciones (research §4.1): es diminuto, solo
+PDF, no cubre F2 y su uniformidad (138–180 palabras) sugiere la convención de recorte del anotador
+más que la longitud natural de la evidencia.
 
 ### Política narrativa (`json`, `pdf`, `txt`, `jpg`, `jpeg`, `png`, `avif`)
 
@@ -102,6 +110,29 @@ Al construir la evidencia, `split_for_output` lanza `UnreturnableAtomicUnitError
 en vez de truncar. **La política final para convertirlos en fragmentos entregables sigue abierta**
 (§ Riesgos, deuda 1).
 
+### Interacción medida entre el packing (E2) y la expansión por vecinos (E6)
+
+**E2 y E6 son sustitutos, no complementos, con `target_words = 200`.** Medido sobre los 171.780
+chunks de la corrida completa, contando cuántas ventanas de evidencia legales (≤ 250 palabras)
+admite cada chunk:
+
+| Ventanas legales | Chunks | % |
+|---|---:|---:|
+| 0 (el propio chunk ya pasa de 250 → `split_for_output`) | 1.547 | 0,90 % |
+| 1 (solo el propio chunk) | 169.191 | **98,49 %** |
+| 2 (un vecino) | 1.040 | 0,61 % |
+| 3 | 2 | 0,00 % |
+
+Mediana del presupuesto de salida sin usar: **69 palabras** (p90 = 109).
+
+El research (§10.3, §19-E6) esperaba que E6 fuera "el mayor beneficio por unidad de esfuerzo"
+porque bajo bloque = chunk los fragmentos usaban entre el 8 % y el 34 % del presupuesto. Este
+baseline **consume ese margen en la indexación**: al empaquetar hasta ~200 palabras ya no queda
+sitio para concatenar un vecino. La infraestructura de `evidence_candidates` sigue siendo correcta
+y necesaria, pero **E6 solo será medible de verdad con un `target_words` bastante menor** (la banda
+120–160 del research). No es un defecto de la implementación: es la consecuencia aritmética de esta
+elección de tamaño, y hay que tenerla presente al diseñar el orden de las ablaciones.
+
 ### Lo que este ADR NO decide
 
 Encoder, tokenizador, tipo de índice, fusión, agregación documental, reranking, prefijo de
@@ -131,24 +162,55 @@ tres últimos preparados sin activarlos.
 **Qué habría que revisar si esta decisión resulta equivocada**
 
 Si E2/E5 muestran que el packing daña NDCG@10 más de lo que ayuda a F1@3, la vuelta atrás es
-barata: `target_words` y `max_words` son configuración, y `ChunkingConfig(target_words=1)`
-reproduce de hecho la política bloque = chunk para los tabulares. Ningún consumidor del chunker
-depende de un tamaño concreto.
+barata: las políticas de referencia son configuración explícita y están cubiertas por tests
+(`tests/test_chunking_policies.py`).
+
+| Política | Cómo se reproduce |
+|---|---|
+| **E0** — bloque = chunk | `block_as_chunk_config()` (sin packing entre bloques **y** sin segmentación por oraciones) |
+| **E1** — packing solo dentro del bloque | `ChunkingConfig(cross_block_packing=False)` |
+| **E2/E5** — baseline vigente | `ChunkingConfig()` |
+
+> Corregido tras la auditoría del 2026-08-11. Una versión anterior de este ADR afirmaba que
+> `ChunkingConfig(target_words=1)` reproducía bloque = chunk. Es **falso** por partida doble: esa
+> llamada lanza `ValueError` (`soft_min_words` no puede superar `target_words`), y aun corrigiéndola
+> a `ChunkingConfig(target_words=1, soft_min_words=1)` solo coincide con E0 en los formatos
+> tabulares — en narrativa un bloque por encima de `max_words` se sigue segmentando por oraciones
+> (2 bloques → 12 chunks en el caso probado). E0 exige además desactivar esa segmentación, que es
+> justo lo que hace `block_as_chunk_config()`.
 
 ## Riesgos y deudas abiertas
 
 1. **Unidades atómicas > 250 palabras.** Existen y no tienen política de salida. Son tablas
    volcadas como texto corrido (`F2-CSIS-171`) y PDF con glifos cifrados por falta de `ToUnicode`
-   CMap (`F3-CEOBS-030`, 120 casos; RESDAL, 276). Hoy `split_for_output` falla explícitamente.
+   CMap (`F3-CEOBS-030`; RESDAL). Hoy `split_for_output` falla explícitamente.
+   **Medido en la corrida completa**: 1.547 chunks `oversized_atomic` (0,90 % del índice) en 269
+   documentos — 1.202 `pdf`, 314 `csv`, 21 `json`, 6 `pbf`, 4 `xlsx`. El más largo es una fila de
+   9.235 palabras (`F1-AIINDEX-041`).
+   El total narrativo (1.223) **no coincide** con los 1.105 bloques que el research contó con una
+   "oración" > 250, y la diferencia está explicada, no es una regresión: 241 de los 243 documentos
+   históricos coinciden y los `json` cuadran exacto (21 = 21). El exceso viene de (a) los 72 bloques
+   cuya segmentación se rechazó por no ser lossless y se conservaron enteros, y (b) bloques
+   multiescritura donde la puntuación no lleva espacio adyacente —p. ej. una sección en árabe de
+   `F1-DAIO-031`, donde `pysbd` propone 13 trozos y la regla de fronteras los vuelve a unir en 1
+   para no partir palabras—. Ambas son consecuencias deliberadas de preservar el contenido.
 2. **Portugués.** `pysbd` no tiene reglas de `pt` (108 documentos del corpus). Se usa el ruleset
    español como el romance más cercano, marcado con `fallback=True` y contabilizado en la
    auditoría. Es una aproximación declarada, no una verdad lingüística.
+   **Cómo leer la métrica**: la detección de idioma es *perezosa* — solo corre en documentos con
+   algún bloque por encima de `max_words`. En la corrida completa hay 11 fallbacks `pt`, que **no**
+   son "11 documentos en portugués": son los documentos en portugués que además necesitaron
+   segmentación. El perfil reporta `documents_with_language_detection` como denominador.
+   Caso límite detectado: `F3-CEOBS-030` (glifos cifrados) se detecta como **alemán** con
+   `fallback=False`; el idioma es basura porque el texto lo es, y ninguna señal lo delata.
 3. **Presupuesto de tokens.** `max_tokens` y `TokenCounter` existen en la interfaz pero el baseline
    corre solo con palabras. Bloqueado por la selección de encoder.
 4. **Frontera de página blanda en PDF.** Pendiente de ablación (Q2 del research).
 5. **Packing de filas.** Pendiente de métricas de recuperación (E2/E5).
 6. **Expansión por vecinos (E6).** `evidence_candidates` genera las ventanas legales pero **no
-   elige entre ellas**: elegir sin medir sería enterrar la pregunta bajo una heurística.
+   elige entre ellas**: elegir sin medir sería enterrar la pregunta bajo una heurística. Además,
+   con `target_words = 200` el 98,49 % de los chunks no admite ningún vecino (ver *Interacción
+   medida entre E2 y E6*): medir E6 exige bajar el target.
 7. **Contexto determinístico (E4).** No activado. `texto` no lleva prefijos; cuando se pruebe, irá
    en un `embedding_text` aparte, sin mutar `texto` (Tabla 1).
 8. **`target_words = 200` no es un óptimo medido.** Los candidatos del research son 160 / 240 / 350
