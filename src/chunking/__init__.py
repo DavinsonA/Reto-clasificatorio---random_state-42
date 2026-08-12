@@ -34,7 +34,7 @@ from .evidence import (
     evidence_candidates,
     split_for_output,
 )
-from .pack import chunk_text, chunk_words, pack_units
+from .pack import chunk_text, chunk_words, is_oversized_unit, pack_units
 from .units import RawDocLike, Unit, UnitTelemetry, document_units
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,7 @@ __all__ = [
     "count_words",
     "document_units",
     "evidence_candidates",
+    "is_oversized_unit",
     "make_chunk_id",
     "materialize_metadata",
     "pack_units",
@@ -103,7 +104,10 @@ def chunk_document(
             block_end=group[-1].block_index,
             unit_count=len(group),
             group_key=group[0].group_key or None,
-            oversized_atomic=len(group) == 1 and group[0].num_words > config.max_words,
+            # Misma decision que uso el packer para aislar la unidad: un chunk de
+            # una sola unidad no es oversized por serlo, sino porque esa unidad
+            # no cabe en ninguno de los presupuestos activos.
+            oversized_atomic=len(group) == 1 and is_oversized_unit(group[0], config, token_counter),
         )
 
 

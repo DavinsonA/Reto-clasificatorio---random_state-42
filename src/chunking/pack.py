@@ -50,7 +50,7 @@ def pack_units(
     block: int | None = None
 
     for unit in units:
-        oversized = _is_oversized(unit, config, token_counter)
+        oversized = is_oversized_unit(unit, config, token_counter)
         boundary = group is not None and (
             unit.group_key != group
             or (not config.cross_block_packing and unit.block_index != block)
@@ -122,12 +122,22 @@ def _close(
     return closed
 
 
-def _is_oversized(
+def is_oversized_unit(
     unit: Unit,
     config: ChunkingConfig,
-    token_counter: TokenCounter | None,
+    token_counter: TokenCounter | None = None,
 ) -> bool:
-    """True si la unidad no cabe en ningun chunk: se emite entera, nunca truncada."""
+    """True si la unidad no cabe en ningun chunk: se emite entera, nunca truncada.
+
+    Unica fuente de verdad de "oversized": la consumen `pack_units`, para aislar
+    la unidad, y `chunk_document`, para marcar `ChunkDraft.oversized_atomic`.
+    Tenerla duplicada hacia que ambas divergieran en cuanto se activara
+    `max_tokens` (una unidad corta en palabras pero larga en tokens quedaba
+    aislada y sin marcar).
+
+    Con `config.max_tokens = None` no se llama al contador y la respuesta
+    depende solo de `max_words`, que es el baseline vigente.
+    """
     if unit.num_words > config.max_words:
         return True
     return not _fits_tokens([unit], config, token_counter)
