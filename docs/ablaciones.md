@@ -15,7 +15,7 @@ Toda variante del pipeline se registra aquí antes de adoptarse. Sin fila, no en
 |---|---|
 | Fecha | _pendiente_ |
 | Extracción | |
-| Chunking | |
+| Chunking | format-aware, `target=200 / soft_min=120 / max=250`, overlap 0, salida `240/250` (ADR-007). **Sin medir**: adoptado por el perfil estructural del corpus, no por métrica de recuperación |
 | Encoder(s) | |
 | Índice | |
 | Fusión | |
@@ -24,6 +24,19 @@ Toda variante del pipeline se registra aquí antes de adoptarse. Sin fila, no en
 | Proxy documento | |
 
 ## Registro
+
+**Pendiente de recuperación.** No hay encoder, ni índice, ni conjunto de consultas de desarrollo:
+ninguna variante de chunking se puede puntuar todavía. El chunking implementado (ADR-007) trae un
+perfil **estructural** (número de chunks, palabras por chunk, concentración documental,
+conservación de contenido) que se regenera con:
+
+```bash
+uv run --extra cpu python -m src.chunking --profile <ruta>
+```
+
+Ese perfil **no es** NDCG@10 ni F1@3 y no se convierte en una fila de esta tabla. Las hipótesis
+E1–E6 de `docs/research/chunking-best-practices-codefest.md` §19 entran aquí cuando exista con qué
+medirlas.
 
 | Fecha | Variante | Qué cambia vs. baseline | Proxy | Frag. | Doc. | Δ frag. | Δ doc. | Decisión | Responsable |
 |---|---|---|---|---|---|---|---|---|---|

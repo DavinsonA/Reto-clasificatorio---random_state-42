@@ -40,6 +40,13 @@ dev = [
     "pytest>=9.1.1",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: corre sobre los volcados reales de data/interim (se salta si no estan)",
+]
+
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
 
