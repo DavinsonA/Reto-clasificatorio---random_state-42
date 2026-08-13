@@ -194,6 +194,106 @@ def test_evaluate_query_rerank_sin_gold_da_none():
     assert metrics.f1_at_3 is None
 
 
+# --- threshold propagado explicitamente (bug corregido en esta revision) ------------------------
+#
+# El runner recibe `evidence_hit_threshold` pero antes NO lo pasaba a `match_evidence_unit_rerank`
+# ni a `proxy_ndcg_evidence_at_10` (via `evaluate_query_rerank`): ambas caian al default del
+# modulo. Con 0.95 == default el numero no cambiaba, pero el parametro era una mentira y cualquier
+# corrida con otro umbral habria mezclado dos criterios distintos en la misma tabla.
+
+
+def _coverage_090_case() -> tuple[GoldEvidenceUnit, list[RankedFragment], IndexStore]:
+    """Gold de 14 tokens (10 five-grams); candidato con 13 (9 five-grams) -> recall exacto 0.9."""
+    gold_text = " ".join(f"w{i}" for i in range(14))
+    candidate_text = " ".join(f"w{i}" for i in range(13))
+    evidence = GoldEvidenceUnit("q1", "e0", "D1", "f", gold_text)
+    store = _store([ChunkRow(doc_id="D1", chunk_id="c0", posicion=0, texto=candidate_text)])
+    return evidence, [_fragment("c0", doc_id="D1", rank=1)], store
+
+
+def test_cobertura_090_es_exactamente_090():
+    """Ancla del caso: si esto cambia, los dos tests de umbral siguientes dejan de significar nada."""
+    evidence, fragments, store = _coverage_090_case()
+    match = match_evidence_unit_rerank(evidence, fragments, "sys", store, threshold=0.95)
+    assert match.best_fivegram_recall_at_10 == pytest.approx(0.9)
+
+
+def test_threshold_095_convierte_cobertura_090_en_miss():
+    evidence, fragments, store = _coverage_090_case()
+    match = match_evidence_unit_rerank(evidence, fragments, "sys", store, threshold=0.95)
+
+    assert match.hit_at_10 is False
+    assert match.hit_at_20 is False
+    assert match.hit_at_75 is False
+
+
+def test_threshold_080_convierte_la_misma_cobertura_en_hit():
+    evidence, fragments, store = _coverage_090_case()
+    match = match_evidence_unit_rerank(evidence, fragments, "sys", store, threshold=0.80)
+
+    assert match.hit_at_10 is True
+    assert match.hit_at_20 is True
+    assert match.hit_at_75 is True
+
+
+def test_evaluate_query_rerank_propaga_threshold_a_evidence_recall():
+    evidence, fragments, store = _coverage_090_case()
+
+    strict_matches = [match_evidence_unit_rerank(evidence, fragments, "s", store, threshold=0.95)]
+    loose_matches = [match_evidence_unit_rerank(evidence, fragments, "s", store, threshold=0.80)]
+
+    strict = evaluate_query_rerank(
+        "q1",
+        "s",
+        fragments,
+        [evidence],
+        strict_matches,
+        store,
+        ["D1"],
+        frozenset({"D1"}),
+        threshold=0.95,
+    )
+    loose = evaluate_query_rerank(
+        "q1",
+        "s",
+        fragments,
+        [evidence],
+        loose_matches,
+        store,
+        ["D1"],
+        frozenset({"D1"}),
+        threshold=0.80,
+    )
+
+    assert strict.evidence_recall_at_10 == pytest.approx(0.0)
+    assert loose.evidence_recall_at_10 == pytest.approx(1.0)
+
+
+def test_evaluate_query_rerank_propaga_threshold_a_proxy_ndcg():
+    """El bug concreto: `ProxyNDCG@10` ignoraba el umbral del runner y usaba siempre el default.
+
+    Con cobertura 0.9: umbral 0.95 -> relevancia 0 -> NDCG 0; umbral 0.80 -> relevancia 0.9 -> >0.
+    """
+    evidence, fragments, store = _coverage_090_case()
+    matches = [match_evidence_unit_rerank(evidence, fragments, "s", store, threshold=0.80)]
+
+    strict = evaluate_query_rerank(
+        "q1", "s", fragments, [evidence], matches, store, ["D1"], frozenset({"D1"}), threshold=0.95
+    )
+    loose = evaluate_query_rerank(
+        "q1", "s", fragments, [evidence], matches, store, ["D1"], frozenset({"D1"}), threshold=0.80
+    )
+
+    assert strict.proxy_ndcg_evidence_at_10 == pytest.approx(0.0)
+    assert loose.proxy_ndcg_evidence_at_10 > 0.0
+
+
+def test_evaluate_query_rerank_default_es_el_umbral_congelado():
+    from src.retrieval.config import EVIDENCE_HIT_THRESHOLD
+
+    assert EVIDENCE_HIT_THRESHOLD == 0.95
+
+
 # --- ProxyNDCG@10 reusado tal cual de metrics_v2, sin duplicar logica ---------------------------
 
 

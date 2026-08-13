@@ -1,9 +1,16 @@
 """CLI: `uv run --extra gpu python -m src.retrieval.main_reranker` (o `--extra cpu`).
 
-Fase experimental de cross-encoder reranking sobre el candidate set congelado a K=75
-(BGE@75/RRF@75, ver `runner_reranker.py`). No hace hyperparameter sweep: `--device`/`--dtype`/
-`--batch-size`/`--max-length` son overrides explicitos de una corrida puntual, no un barrido.
-Escribe en `data/interim/reranker_benchmark/` por defecto; V1/V2/V3 no se tocan.
+Fase experimental de cross-encoder reranking. DOS profundidades explicitas y separadas:
+
+    --retrieval-k     100   profundidad de FAISS = input de la fusion RRF
+    --rerank-pool-k    75   pool que ve el cross-encoder, truncado DESPUES de fusionar
+
+El benchmark metodologico oficial de esta fase es `100 -> truncate 75` (semantica V3). Estos dos
+flags existen para que la configuracion quede explicita y auditable en los artefactos, NO para
+barrer hiperparametros: una corrida con otros valores no es comparable con la oficial.
+
+Escribe en `data/interim/reranker_benchmark_v2/` por defecto; V1/V2/V3 y la corrida previa del
+reranker (`data/interim/reranker_benchmark/`) no se tocan.
 """
 
 from __future__ import annotations
@@ -24,7 +31,11 @@ from .runner_reranker import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RERANKER_MODEL_ID,
     DEFAULT_RERANKER_REVISION,
-    RERANK_CANDIDATE_K,
+    PREVIOUS_OUTPUT_DIR,
+    RERANK_POOL_K,
+    RETRIEVAL_K,
+    build_comparison_with_previous,
+    format_comparison_table,
     format_summary_table_reranker,
     run_reranker_benchmark,
     write_artifacts_reranker,
@@ -40,10 +51,22 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--gte-index-dir", type=Path, default=GTE_INDEX_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
-        "--candidate-k",
+        "--previous-output-dir",
+        type=Path,
+        default=PREVIOUS_OUTPUT_DIR,
+        help="corrida previa del reranker, SOLO LECTURA, para comparison_reranker_v1_v2.json",
+    )
+    parser.add_argument(
+        "--retrieval-k",
         type=int,
-        default=RERANK_CANDIDATE_K,
-        help="tamano del candidate set congelado de esta fase (metodologicamente fijo en 75)",
+        default=RETRIEVAL_K,
+        help="profundidad de FAISS e input de la fusion RRF (oficial: 100, igual que V3)",
+    )
+    parser.add_argument(
+        "--rerank-pool-k",
+        type=int,
+        default=RERANK_POOL_K,
+        help="pool entregado al cross-encoder, truncado tras fusionar (oficial: 75)",
     )
     parser.add_argument("--rrf-k0", type=int, default=RRF_K0)
     parser.add_argument("--evidence-hit-threshold", type=float, default=EVIDENCE_HIT_THRESHOLD)
@@ -85,7 +108,8 @@ def main(argv: list[str] | None = None) -> int:
         devset_path=args.devset,
         bge_index_dir=args.bge_index_dir,
         gte_index_dir=args.gte_index_dir,
-        candidate_k=args.candidate_k,
+        retrieval_k=args.retrieval_k,
+        rerank_pool_k=args.rerank_pool_k,
         rrf_k0=args.rrf_k0,
         evidence_hit_threshold=args.evidence_hit_threshold,
         model_id=args.model_id,
@@ -96,13 +120,19 @@ def main(argv: list[str] | None = None) -> int:
         max_length=args.max_length,
         trust_remote_code=args.trust_remote_code,
     )
-    write_artifacts_reranker(artifacts, args.output_dir)
+    write_artifacts_reranker(artifacts, args.output_dir, args.previous_output_dir)
     logger.info(
         "resumen final reranking\n%s", format_summary_table_reranker(artifacts.metrics_summary)
     )
+    logger.info(
+        "comparacion corrida previa vs corregida\n%s",
+        format_comparison_table(
+            build_comparison_with_previous(artifacts, args.previous_output_dir)
+        ),
+    )
 
     if not artifacts.integrity["benchmark_valid"]:
-        logger.error("benchmark invalido: revisar integrity.json (invariante EvR@75 rota)")
+        logger.error("benchmark invalido: revisar integrity.json")
         return 1
     return 0
 

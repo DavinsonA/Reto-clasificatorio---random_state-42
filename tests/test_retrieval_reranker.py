@@ -396,6 +396,57 @@ def test_cross_encoder_reranker_rerank_vacio():
     assert wrapper.total_pairs_scored == 0
 
 
+def test_reset_performance_counters_excluye_el_smoke_test():
+    """Los pares del smoke test no son parte del benchmark: el runner resetea antes de medir."""
+    spec = RerankerSpec(
+        model_id="m", revision="r", device="cpu", dtype="float32", max_length=512, batch_size=8
+    )
+    wrapper = CrossEncoderReranker(_FakeCrossEncoderModel(), spec)
+
+    wrapper.score([("q", "smoke a"), ("q", "smoke b")])
+    assert wrapper.total_pairs_scored == 2
+
+    wrapper.reset_performance_counters()
+    assert wrapper.total_pairs_scored == 0
+    assert wrapper.total_scoring_time_s == 0.0
+
+    wrapper.rerank("q", [_candidate("c0"), _candidate("c1"), _candidate("c2")])
+    assert wrapper.total_pairs_scored == 3  # solo el benchmark, sin los 2 del smoke test
+
+
+# --- naming de performance: query unica != llamada de scoring (query, sistema) -----------------
+
+
+def test_performance_naming_distingue_queries_unicas_de_pares_query_sistema():
+    """Con N queries y 2 sistemas base hay N queries unicas pero 2N llamadas de scoring.
+
+    El bug corregido: `queries_per_sec` se calculaba como `num_scoring_calls / t`, que es el doble
+    del throughput real de queries.
+    """
+    spec = RerankerSpec(
+        model_id="m", revision="r", device="cpu", dtype="float32", max_length=512, batch_size=8
+    )
+    wrapper = CrossEncoderReranker(_FakeCrossEncoderModel(), spec)
+
+    unique_queries = 9
+    pool_size = 75
+    query_system_pairs = 0
+    for index in range(unique_queries):
+        for _system in ("bge-m3", "rrf"):
+            wrapper.rerank(f"q{index}", [_candidate(f"c{i:03d}") for i in range(pool_size)])
+            query_system_pairs += 1
+
+    assert unique_queries == 9
+    assert query_system_pairs == 2 * unique_queries == 18
+    assert wrapper.total_pairs_scored == query_system_pairs * pool_size == 1350
+
+    scoring_time = wrapper.total_scoring_time_s or 1.0
+    unique_queries_per_sec = unique_queries / scoring_time
+    query_system_pairs_per_sec = query_system_pairs / scoring_time
+    # el throughput de pares (query, sistema) es exactamente el doble del de queries unicas
+    assert query_system_pairs_per_sec == pytest.approx(2 * unique_queries_per_sec)
+
+
 # --- build_model_manifest: con un doble minimo de CrossEncoder ----------------------------------
 
 

@@ -209,11 +209,17 @@ def evaluate_query_rerank(
     store: IndexStore,
     document_ids: list[str],
     gold_documents: frozenset[str],
+    threshold: float = EVIDENCE_HIT_THRESHOLD,
 ) -> QueryRerankMetrics:
     """Calcula todas las metricas de esta fase para un (query, sistema).
 
     `fragments` puede ser el ranking original (baseline, 75 candidatos) o el ranking rerankeado
     (`RerankedCandidate.to_ranked_fragment()`): ambos son `list[RankedFragment]`, misma firma.
+
+    `threshold` se propaga EXPLICITAMENTE a `proxy_ndcg_evidence_at_10`: antes esa llamada caia al
+    default del modulo, de modo que pasar un umbral distinto al runner cambiaba `EvR@k` pero NO
+    `ProxyNDCG@10` (dos metricas de la misma corrida evaluadas con umbrales distintos). Los
+    `evidence_matches` ya deben venir calculados con ESTE mismo umbral por quien llama.
     """
     document_score = f1_at_k_documents(document_ids, gold_documents)
     return QueryRerankMetrics(
@@ -221,7 +227,9 @@ def evaluate_query_rerank(
         system=system,
         has_gold_evidence=bool(evidence_units),
         has_gold_documents=bool(gold_documents),
-        proxy_ndcg_evidence_at_10=proxy_ndcg_evidence_at_10(fragments, evidence_units, store),
+        proxy_ndcg_evidence_at_10=proxy_ndcg_evidence_at_10(
+            fragments, evidence_units, store, threshold=threshold
+        ),
         evidence_recall_at_10=evidence_recall_at_k(evidence_matches, 10),
         evidence_recall_at_20=evidence_recall_at_k(evidence_matches, 20),
         evidence_recall_at_75=evidence_recall_at_k(evidence_matches, 75),

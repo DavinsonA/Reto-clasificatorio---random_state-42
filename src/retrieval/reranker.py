@@ -348,6 +348,16 @@ class CrossEncoderReranker:
     def total_scoring_time_s(self) -> float:
         return self._total_scoring_time_s
 
+    def reset_performance_counters(self) -> None:
+        """Pone a cero pares/tiempo acumulados. Lo usa el runner tras el smoke test para que
+        `performance.json` describa EXCLUSIVAMENTE el scoring del benchmark: antes los 2 pares
+        sinteticos del smoke test se sumaban a los pares reales y contaminaban los throughputs.
+        No cambia COMO se mide (sigue siendo `perf_counter` alrededor de `predict`), solo la
+        ventana que se reporta.
+        """
+        self._total_pairs_scored = 0
+        self._total_scoring_time_s = 0.0
+
     def score(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
