@@ -14,6 +14,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
     from transformers import PreTrainedTokenizerBase
@@ -39,10 +41,15 @@ class EncoderSpec:
     declaran limites de HuggingFace poco fiables (ver `_SANE_MODEL_MAX_LENGTH`).
     Ningun encoder de este registro esta elegido todavia; esto solo fija su
     configuracion para poder auditarlos con el mismo contrato.
+
+    `revision` es obligatoria y debe ser un commit SHA concreto (`HfApi().model_info(model_id).sha`),
+    nunca `main` ni `latest`: sin ella, dos corridas del benchmark en fechas distintas podrian estar
+    embebiendo con pesos diferentes sin que nada lo delate.
     """
 
     name: str
     model_id: str
+    revision: str
     embedding_dimension: int
     max_sequence_length: int
     query_prefix: str = ""
@@ -54,6 +61,10 @@ class EncoderSpec:
         """Valida la configuracion; un encoder mal declarado falla al registrarse."""
         if not self.name or not self.model_id:
             raise EncoderConfigError("name y model_id son obligatorios")
+        if not self.revision:
+            raise EncoderConfigError(
+                "revision es obligatoria (commit SHA de HuggingFace, no 'main')"
+            )
         if self.embedding_dimension <= 0:
             raise EncoderConfigError("embedding_dimension debe ser positiva")
         if self.max_sequence_length <= 0:
@@ -73,7 +84,7 @@ def _load_tokenizer(spec: EncoderSpec) -> PreTrainedTokenizerBase:
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(
-        spec.model_id, trust_remote_code=spec.trust_remote_code
+        spec.model_id, revision=spec.revision, trust_remote_code=spec.trust_remote_code
     )
     reported = getattr(tokenizer, "model_max_length", None)
     if (
@@ -91,11 +102,31 @@ def _load_tokenizer(spec: EncoderSpec) -> PreTrainedTokenizerBase:
     return tokenizer
 
 
-def _load_sentence_transformer(spec: EncoderSpec) -> SentenceTransformer:
-    """Carga el modelo completo de `sentence-transformers`, pesos incluidos."""
+def _load_sentence_transformer(spec: EncoderSpec, device: str | None = None) -> SentenceTransformer:
+    """Carga el modelo completo de `sentence-transformers`, pesos incluidos, en `device`.
+
+    Fuerza `max_seq_length` al contexto declarado en `spec`: varios checkpoints traen un default
+    propio (GTE reporta 32768 via el tokenizer) que no es la decision del equipo. Sin forzarlo,
+    `context auditado == context usado durante embedding` dejaria de cumplirse en silencio.
+    """
     from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(spec.model_id, trust_remote_code=spec.trust_remote_code)
+    model = SentenceTransformer(
+        spec.model_id,
+        revision=spec.revision,
+        trust_remote_code=spec.trust_remote_code,
+        device=device,
+    )
+    if model.max_seq_length != spec.max_sequence_length:
+        logger.warning(
+            "max_seq_length de SentenceTransformer difiere del contexto declarado, se fuerza | "
+            "%s | modelo=%s declarado=%s",
+            spec.model_id,
+            model.max_seq_length,
+            spec.max_sequence_length,
+        )
+        model.max_seq_length = spec.max_sequence_length
+    return model
 
 
 class EncoderModel:
@@ -111,6 +142,8 @@ class EncoderModel:
         self.spec = spec
         self._tokenizer: Any | None = None
         self._model: Any | None = None
+        self._model_device: str | None = None
+        self._model_dtype: str = "float32"
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
@@ -119,12 +152,42 @@ class EncoderModel:
             self._tokenizer = _load_tokenizer(self.spec)
         return self._tokenizer
 
+    def load_model(self, device: str | None = None) -> SentenceTransformer:
+        """Carga el modelo completo en `device` (o el que sentence-transformers autodetecte).
+
+        Llamada explicita: el benchmark y el builder deciden el device (la fase de embeddings
+        exige GPU, ver `hardware.require_cuda`), en vez de dejar que la carga perezosa adivine.
+        """
+        if self._model is None:
+            self._model = _load_sentence_transformer(self.spec, device=device)
+            self._model_device = str(self._model.device)
+        return self._model
+
     @property
     def model(self) -> SentenceTransformer:
         """Modelo completo de `sentence-transformers`. No se usa en el audit de tokens."""
         if self._model is None:
-            self._model = _load_sentence_transformer(self.spec)
+            self.load_model()
         return self._model
+
+    @property
+    def model_device(self) -> str | None:
+        """Device real del modelo cargado, o `None` si todavia no se cargo."""
+        return self._model_device
+
+    @property
+    def model_dtype(self) -> str:
+        """`float32` (default) o `float16` tras llamar a `use_fp16`."""
+        return self._model_dtype
+
+    def use_fp16(self) -> None:
+        """Convierte los pesos del modelo ya cargado a float16. Nunca automatico.
+
+        La salida de `encode_documents`/`encode_queries` sigue siendo `float32`: la conversion es
+        solo para el computo interno, no para lo que llega a FAISS.
+        """
+        self.model.half()
+        self._model_dtype = "float16"
 
     def count_query_tokens(self, text: str) -> int:
         """Tokens de una consulta con el formato exacto que veria el modelo."""
@@ -147,19 +210,36 @@ class EncoderModel:
     def _count(self, formatted_text: str) -> int:
         return len(self.tokenizer(formatted_text, add_special_tokens=True)["input_ids"])
 
-    def encode_query(self, text: str) -> Any:
-        """Embedding de una consulta. No se usa en esta fase (solo tokenizador)."""
-        return self.model.encode(
-            self.spec.format_query(text),
-            normalize_embeddings=self.spec.normalize_embeddings,
-        )
+    def encode_documents(
+        self, texts: list[str], batch_size: int = 32, show_progress_bar: bool = False
+    ) -> np.ndarray:
+        """Embeddings de un lote de chunks, formateados como documento.
 
-    def encode_document(self, text: str) -> Any:
-        """Embedding de un chunk. No se usa en esta fase (solo tokenizador)."""
-        return self.model.encode(
-            self.spec.format_document(text),
+        Trunca al `max_seq_length` forzado en `load_model` (nunca silenciosamente a otro valor),
+        normaliza L2 si `spec.normalize_embeddings` y devuelve siempre `float32`: si el modelo
+        corre en fp16 (`use_fp16`), la conversion a fp32 es explicita aqui, no un efecto colateral.
+        """
+        formatted = [self.spec.format_document(text) for text in texts]
+        return self._encode(formatted, batch_size, show_progress_bar)
+
+    def encode_queries(
+        self, texts: list[str], batch_size: int = 32, show_progress_bar: bool = False
+    ) -> np.ndarray:
+        """Embeddings de un lote de consultas, formateadas como query. Ver `encode_documents`."""
+        formatted = [self.spec.format_query(text) for text in texts]
+        return self._encode(formatted, batch_size, show_progress_bar)
+
+    def _encode(
+        self, formatted_texts: list[str], batch_size: int, show_progress_bar: bool
+    ) -> np.ndarray:
+        embeddings = self.model.encode(
+            formatted_texts,
+            batch_size=batch_size,
+            show_progress_bar=show_progress_bar,
             normalize_embeddings=self.spec.normalize_embeddings,
+            convert_to_numpy=True,
         )
+        return np.asarray(embeddings, dtype=np.float32)
 
     def as_token_counter(self) -> Any:
         """El `TokenCounter` que `src.chunking.pack_units` espera inyectar."""

@@ -62,6 +62,7 @@ def _fake_model(name: str, max_sequence_length: int) -> EncoderModel:
     spec = EncoderSpec(
         name=name,
         model_id="fake/fake",
+        revision="fake-revision",
         embedding_dimension=8,
         max_sequence_length=max_sequence_length,
     )
@@ -126,9 +127,7 @@ def test_iter_chunk_records_lee_los_campos_necesarios(tmp_path):
 def test_audit_calcula_percentiles_over_context_y_grupos(tmp_path):
     rows = [
         _chunk_row("F1-A-001", "a b c", formato="pdf", fenomeno=1),
-        _chunk_row(
-            "F1-A-002", "a b c d e f", formato="pdf", fenomeno=1
-        ),  # 6 tokens > 5
+        _chunk_row("F1-A-002", "a b c d e f", formato="pdf", fenomeno=1),  # 6 tokens > 5
         _chunk_row("F2-B-001", "a b", formato="csv", fenomeno=2, oversized_atomic=True),
     ]
     path = _write_chunks(tmp_path, rows)
@@ -146,15 +145,11 @@ def test_audit_calcula_percentiles_over_context_y_grupos(tmp_path):
     assert audit.by_fenomeno[1].as_dict()["chunk_count"] == 2
     assert audit.by_oversized[True].as_dict()["chunk_count"] == 1
     assert summary["oversized_atomic_count"] == 1
-    assert (
-        summary["oversized_atomic_over_context_count"] == 0
-    )  # la fila oversized no excede
+    assert summary["oversized_atomic_over_context_count"] == 0  # la fila oversized no excede
 
 
 def test_over_context_examples_registran_lo_necesario_para_investigar(tmp_path):
-    rows = [
-        _chunk_row("F1-A-001", "a b c d e f g", formato="pdf", fenomeno=3, posicion=2)
-    ]
+    rows = [_chunk_row("F1-A-001", "a b c d e f g", formato="pdf", fenomeno=3, posicion=2)]
     path = _write_chunks(tmp_path, rows)
     model = _fake_model("fake", max_sequence_length=3)
 
@@ -205,6 +200,7 @@ def test_write_breakdown_csv_incluye_una_fila_por_modelo_y_grupo(tmp_path):
         EncoderSpec(
             name="fake",
             model_id="fake/fake",
+            revision="fake-revision",
             embedding_dimension=8,
             max_sequence_length=5,
         )
@@ -224,6 +220,7 @@ def test_write_over_context_csv_una_fila_por_ejemplo(tmp_path):
         EncoderSpec(
             name="fake",
             model_id="fake/fake",
+            revision="fake-revision",
             embedding_dimension=8,
             max_sequence_length=5,
         )

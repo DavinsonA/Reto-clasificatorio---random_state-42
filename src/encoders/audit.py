@@ -116,9 +116,7 @@ class TokenBucket:
             "chunk_count": count,
             **stats,
             "over_context_count": self.over_context,
-            "over_context_pct": round(100 * self.over_context / count, 4)
-            if count
-            else 0.0,
+            "over_context_pct": round(100 * self.over_context / count, 4) if count else 0.0,
         }
 
 
@@ -157,15 +155,9 @@ class ModelAudit:
 
     spec: EncoderSpec
     overall: TokenBucket = field(default_factory=TokenBucket)
-    by_format: dict[str, TokenBucket] = field(
-        default_factory=lambda: defaultdict(TokenBucket)
-    )
-    by_fenomeno: dict[int, TokenBucket] = field(
-        default_factory=lambda: defaultdict(TokenBucket)
-    )
-    by_oversized: dict[bool, TokenBucket] = field(
-        default_factory=lambda: defaultdict(TokenBucket)
-    )
+    by_format: dict[str, TokenBucket] = field(default_factory=lambda: defaultdict(TokenBucket))
+    by_fenomeno: dict[int, TokenBucket] = field(default_factory=lambda: defaultdict(TokenBucket))
+    by_oversized: dict[bool, TokenBucket] = field(default_factory=lambda: defaultdict(TokenBucket))
     over_context_examples: list[OverContextExample] = field(default_factory=list)
 
     def observe(self, record: ChunkRecord, num_tokens: int) -> None:
@@ -273,9 +265,7 @@ def write_summary(
     return path
 
 
-def write_breakdown_csv(
-    audits: dict[str, ModelAudit], group: str, output_dir: Path
-) -> Path:
+def write_breakdown_csv(audits: dict[str, ModelAudit], group: str, output_dir: Path) -> Path:
     """Percentiles y over-context por modelo, estratificados por `group`."""
     path = output_dir / f"{group}.csv"
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -321,9 +311,7 @@ def write_breakdown_csv(
     return path
 
 
-def write_over_context_csv(
-    model_name: str, audit: ModelAudit, output_dir: Path
-) -> Path:
+def write_over_context_csv(model_name: str, audit: ModelAudit, output_dir: Path) -> Path:
     """Chunks que exceden el contexto de `model_name`, con lo minimo para investigarlos."""
     path = output_dir / f"over_context_{model_name.replace('-', '_')}.csv"
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -375,9 +363,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS_PATH)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    parser.add_argument(
-        "--limit", type=int, help="tope de chunks, para pruebas rapidas"
-    )
+    parser.add_argument("--limit", type=int, help="tope de chunks, para pruebas rapidas")
     return parser.parse_args(argv)
 
 
@@ -405,9 +391,7 @@ def main(argv: list[str] | None = None) -> int:
         [gpu.name for gpu in hardware.gpus],
     )
 
-    audits = run_audit(
-        models, args.chunks, batch_size=args.batch_size, limit=args.limit
-    )
+    audits = run_audit(models, args.chunks, batch_size=args.batch_size, limit=args.limit)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_summary(audits, hardware, args.chunks, args.output_dir)

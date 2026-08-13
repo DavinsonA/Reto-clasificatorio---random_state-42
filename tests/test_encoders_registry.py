@@ -20,9 +20,7 @@ def test_cada_modelo_tiene_configuracion_valida(name):
 def test_model_ids_correctos():
     assert get_spec("bge-m3").model_id == "BAAI/bge-m3"
     assert get_spec("gte-multilingual").model_id == "Alibaba-NLP/gte-multilingual-base"
-    assert (
-        get_spec("multilingual-e5-large").model_id == "intfloat/multilingual-e5-large"
-    )
+    assert get_spec("multilingual-e5-large").model_id == "intfloat/multilingual-e5-large"
 
 
 def test_dimensiones_y_contexto_declarados():
@@ -60,24 +58,35 @@ def test_get_model_no_carga_tokenizador_ni_pesos():
         {
             "name": "",
             "model_id": "x",
+            "revision": "x",
             "embedding_dimension": 1,
             "max_sequence_length": 1,
         },
         {
             "name": "x",
             "model_id": "",
+            "revision": "x",
             "embedding_dimension": 1,
             "max_sequence_length": 1,
         },
         {
             "name": "x",
             "model_id": "x",
+            "revision": "",
+            "embedding_dimension": 1,
+            "max_sequence_length": 1,
+        },
+        {
+            "name": "x",
+            "model_id": "x",
+            "revision": "x",
             "embedding_dimension": 0,
             "max_sequence_length": 1,
         },
         {
             "name": "x",
             "model_id": "x",
+            "revision": "x",
             "embedding_dimension": 1,
             "max_sequence_length": 0,
         },
@@ -86,3 +95,21 @@ def test_get_model_no_carga_tokenizador_ni_pesos():
 def test_encoder_spec_rechaza_configuracion_incoherente(kwargs):
     with pytest.raises(EncoderConfigError):
         EncoderSpec(**kwargs)
+
+
+def test_encoder_spec_exige_revision_concreta():
+    with pytest.raises(EncoderConfigError, match="revision"):
+        EncoderSpec(
+            name="x",
+            model_id="x",
+            revision="",
+            embedding_dimension=1,
+            max_sequence_length=1,
+        )
+
+
+@pytest.mark.parametrize("name", available_names())
+def test_cada_modelo_registrado_tiene_revision_pineada(name):
+    spec = get_spec(name)
+    assert spec.revision
+    assert spec.revision not in ("main", "latest", "HEAD")

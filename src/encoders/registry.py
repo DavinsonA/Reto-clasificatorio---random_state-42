@@ -13,6 +13,11 @@ Formato por modelo:
 - **multilingual-e5-large**: formato obligatorio del checkpoint, `query: ` y
   `passage: ` (ver README del modelo); sin ellos las puntuaciones de similitud
   no son las que reporta la literatura.
+
+`revision` es el commit SHA resuelto contra el Hub el 2026-08-12 con
+`HfApi().model_info(model_id).sha` (no `main`, ver `EncoderSpec`). Si un checkpoint
+se re-sube y hay que actualizar la version, resolver de nuevo y dejar constancia
+del cambio aqui, no solo en el commit de git.
 """
 
 from __future__ import annotations
@@ -23,12 +28,14 @@ REGISTRY: dict[str, EncoderSpec] = {
     "bge-m3": EncoderSpec(
         name="bge-m3",
         model_id="BAAI/bge-m3",
+        revision="5617a9f61b028005a4858fdac845db406aefb181",
         embedding_dimension=1024,
         max_sequence_length=8192,
     ),
     "gte-multilingual": EncoderSpec(
         name="gte-multilingual",
         model_id="Alibaba-NLP/gte-multilingual-base",
+        revision="9bbca17d9273fd0d03d5725c7a4b0f6b45142062",
         embedding_dimension=768,
         max_sequence_length=8192,
         trust_remote_code=True,
@@ -36,6 +43,7 @@ REGISTRY: dict[str, EncoderSpec] = {
     "multilingual-e5-large": EncoderSpec(
         name="multilingual-e5-large",
         model_id="intfloat/multilingual-e5-large",
+        revision="3d7cfbdacd47fdda877c5cd8a79fbcc4f2a574f3",
         embedding_dimension=1024,
         max_sequence_length=512,
         query_prefix="query: ",

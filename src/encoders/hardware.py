@@ -15,6 +15,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+class GpuPreflightError(RuntimeError):
+    """`torch.cuda.is_available()` es False donde la fase exige GPU real.
+
+    La auditoria de tokens (`src.encoders.audit`) tolera CPU a proposito; el
+    benchmark y el builder de embeddings (`src.encoders.benchmark`,
+    `src.encoders.build`) no: generar 171.780 embeddings x2 modelos en CPU por
+    accidente es un error de esta fase, no un fallback aceptable.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class GpuInfo:
     """Una GPU reportada por CUDA o, en su defecto, por el driver (`nvidia-smi`)."""
@@ -41,8 +51,7 @@ class HardwareReport:
             "torch_cuda_build": self.torch_cuda_build,
             "cuda_available": self.cuda_available,
             "gpus": [
-                {"name": gpu.name, "memory_total_mib": gpu.memory_total_mib}
-                for gpu in self.gpus
+                {"name": gpu.name, "memory_total_mib": gpu.memory_total_mib} for gpu in self.gpus
             ],
         }
 
@@ -74,6 +83,25 @@ def probe_hardware() -> HardwareReport:
         cuda_available=cuda_available,
         gpus=gpus,
     )
+
+
+def require_cuda() -> HardwareReport:
+    """Gate obligatorio antes de cargar modelos completos para embedding real.
+
+    Raises:
+        GpuPreflightError: no hay CUDA disponible. No hay fallback a CPU: quien
+            llama debe corregir el entorno (`uv sync --extra gpu`) y reintentar,
+            nunca continuar en silencio.
+    """
+    report = probe_hardware()
+    if not report.cuda_available:
+        raise GpuPreflightError(
+            "torch.cuda.is_available() es False. Esta fase prohibe el fallback "
+            "silencioso a CPU: corre `uv sync --extra gpu` y verifica con "
+            '`uv run --extra gpu python -c "import torch; print(torch.cuda.is_available())"` '
+            "antes de reintentar."
+        )
+    return report
 
 
 def _probe_nvidia_smi() -> tuple[GpuInfo, ...]:

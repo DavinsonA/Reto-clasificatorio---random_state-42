@@ -6,6 +6,8 @@ la extraccion cambia, estos tests fallan, que es exactamente lo que se quiere.
 
 from __future__ import annotations
 
+import numpy as np
+
 from src.extract.core import RawDoc
 
 
@@ -57,18 +59,62 @@ class FakeTokenizer:
 
     def __init__(self, tokens_per_word: int = 1, model_max_length: int | None = None):
         self.tokens_per_word = tokens_per_word
-        self.model_max_length = (
-            model_max_length if model_max_length is not None else int(1e30)
-        )
+        self.model_max_length = model_max_length if model_max_length is not None else int(1e30)
         self.calls: list[str | list[str]] = []
 
     def __call__(self, text_or_texts, add_special_tokens: bool = True):
         self.calls.append(text_or_texts)
         if isinstance(text_or_texts, str):
             return {"input_ids": list(range(self._tokens_of(text_or_texts)))}
-        return {
-            "input_ids": [list(range(self._tokens_of(text))) for text in text_or_texts]
-        }
+        return {"input_ids": [list(range(self._tokens_of(text))) for text in text_or_texts]}
 
     def _tokens_of(self, text: str) -> int:
         return len(text.split()) * self.tokens_per_word
+
+
+class FakeSentenceTransformer:
+    """`SentenceTransformer` falso: reproduce solo la firma de `.encode()` que usa `EncoderModel`.
+
+    Los vectores son deterministas (seed = hash del texto) y unitarios, para poder verificar
+    normalizacion sin depender de un modelo real. `calls` registra cada invocacion completa,
+    para comprobar que el texto que llega ya esta formateado (prefijo incluido).
+    """
+
+    def __init__(self, dimension: int = 8, output_dtype: type = np.float32):
+        self.dimension = dimension
+        self.output_dtype = output_dtype
+        self.calls: list[dict] = []
+        self.halved = False
+
+    def encode(
+        self,
+        texts,
+        batch_size: int,
+        show_progress_bar: bool,
+        normalize_embeddings: bool,
+        convert_to_numpy: bool,
+    ):
+        self.calls.append(
+            {
+                "texts": list(texts),
+                "batch_size": batch_size,
+                "normalize_embeddings": normalize_embeddings,
+            }
+        )
+        vectors = np.vstack([_deterministic_unit_vector(text, self.dimension) for text in texts])
+        return vectors.astype(self.output_dtype)
+
+    def half(self) -> None:
+        self.halved = True
+        self.output_dtype = np.float16
+
+
+def _deterministic_unit_vector(text: str, dimension: int) -> np.ndarray:
+    """Vector unitario determinista dentro del proceso: mismo texto -> mismo vector.
+
+    `hash()` de `str` varia entre procesos (`PYTHONHASHSEED` aleatorio), pero eso no importa
+    aqui: los tests solo comparan vectores generados en la misma ejecucion.
+    """
+    seed = abs(hash(text)) % (2**32)
+    vector = np.random.default_rng(seed).normal(size=dimension)
+    return (vector / np.linalg.norm(vector)).astype(np.float64)
