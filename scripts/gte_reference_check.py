@@ -212,7 +212,16 @@ def _run_compare(current_path: Path, reference_path: Path, output: Path) -> None
 def _compare_embeddings(current: Any, reference: Any) -> dict[str, Any]:
     import numpy as np
 
-    cosine = np.sum(current * reference, axis=1)  # ambos ya L2-normalizados
+    # Coseno real (dot / (||a|| * ||b||)), no un producto punto que asuma
+    # normalizacion perfecta: ambos deberian ser ~unitarios (2_Normalize), pero
+    # renormalizar aqui es gratis y evita que un pequeno desvio de norma se
+    # confunda con un desvio real de direccion (ver microcorreccion en
+    # src.encoders.benchmark._cosine_similarity).
+    norm_current = np.linalg.norm(current, axis=1)
+    norm_reference = np.linalg.norm(reference, axis=1)
+    denominator = norm_current * norm_reference
+    dot = np.sum(current * reference, axis=1)
+    cosine = np.divide(dot, denominator, out=np.zeros_like(dot), where=denominator > 0)
     abs_diff = np.abs(current - reference)
     return {
         "shape_current": list(current.shape),

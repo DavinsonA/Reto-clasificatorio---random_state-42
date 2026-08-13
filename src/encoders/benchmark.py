@@ -67,6 +67,23 @@ class PrecisionSanityResult:
     fp16_safe: bool
 
 
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Coseno real por fila: `dot(a, b) / (||a|| * ||b||)`, no un producto punto crudo.
+
+    `encode_documents` normaliza con `normalize_embeddings=True`, pero la conversion a FP16
+    redondea la norma un poco por debajo de 1.0 (ver `NORM_TOLERANCE` en `src.encoders.build`,
+    `sample_norm_max_deviation` en los `build_report.json` reales: ~5e-4). Sin renormalizar aqui,
+    `np.sum(a * b, axis=1)` asume vectores perfectamente unitarios y reporta un coseno sesgado,
+    no el real (CLAUDE.md prompt fase-retrieval S4). Filas con norma cero (no deberian ocurrir
+    con embeddings reales) dan coseno 0 en vez de `nan`.
+    """
+    norm_a = np.linalg.norm(a, axis=1)
+    norm_b = np.linalg.norm(b, axis=1)
+    denominator = norm_a * norm_b
+    dot = np.sum(a * b, axis=1)
+    return np.divide(dot, denominator, out=np.zeros_like(dot), where=denominator > 0)
+
+
 def sanity_check_precision(model: EncoderModel, texts: list[str]) -> PrecisionSanityResult:
     """Compara embeddings FP32 vs FP16 del mismo texto. Dejar el modelo en FP16 si es seguro.
 
@@ -80,7 +97,11 @@ def sanity_check_precision(model: EncoderModel, texts: list[str]) -> PrecisionSa
 
     finite = np.isfinite(embeddings_fp16).all()
     same_shape = embeddings_fp16.shape == embeddings_fp32.shape
-    cosine = np.sum(embeddings_fp32 * embeddings_fp16, axis=1) if same_shape else np.array([-1.0])
+    cosine = (
+        _cosine_similarity(embeddings_fp32.astype(np.float64), embeddings_fp16.astype(np.float64))
+        if same_shape
+        else np.array([-1.0])
+    )
     cosine_mean = float(np.mean(cosine))
     cosine_min = float(np.min(cosine))
     fp16_safe = bool(finite and same_shape and cosine_min >= FP16_COSINE_THRESHOLD)
