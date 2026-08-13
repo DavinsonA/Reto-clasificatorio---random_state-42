@@ -52,6 +52,20 @@ GTE_INDEX_DIR = Path("data/interim/faiss_experimental/encoder_gte_multilingual")
 DEFAULT_OUTPUT_DIR = Path("data/interim/retrieval_benchmark")
 DEFAULT_OUTPUT_DIR_V2 = Path("data/interim/retrieval_benchmark_v2")
 DEFAULT_OUTPUT_DIR_V3 = Path("data/interim/retrieval_benchmark_v3")
+DEFAULT_OUTPUT_DIR_V4 = Path("data/interim/retrieval_benchmark_v4")
+
+# --- V4: diagnostico del techo de recuperacion (solo constantes ADITIVAS) ------
+# V4 no toca `EVIDENCE_HIT_THRESHOLD`, `FIVEGRAM_N`, `CANDIDATE_K` ni `RRF_K0`:
+# es una fase de medicion sobre el mismo estado congelado de V2/V3. Lo unico
+# nuevo son las profundidades de la curva de saturacion y las bandas de
+# diagnostico de cobertura.
+SATURATION_K_VALUES: tuple[int, ...] = (20, 50, 75, 100, 200, 500, 1000)
+
+# Bandas DIAGNOSTICAS internas para las evidencias que no llegan al umbral. NO
+# son reglas de CODEFEST y NO desplazan `EVIDENCE_HIT_THRESHOLD`: solo permiten
+# distinguir un 0.94 (casi representable) de un 0.12 (fragmentacion fuerte).
+COVERAGE_BAND_NEAR_REPRESENTABLE = 0.80
+COVERAGE_BAND_PARTIAL = 0.40
 
 BGE_ENCODER_NAME = "bge-m3"
 GTE_ENCODER_NAME = "gte-multilingual"
