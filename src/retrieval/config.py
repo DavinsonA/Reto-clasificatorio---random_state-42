@@ -51,6 +51,7 @@ BGE_INDEX_DIR = Path("data/interim/faiss_experimental/encoder_bge_m3")
 GTE_INDEX_DIR = Path("data/interim/faiss_experimental/encoder_gte_multilingual")
 DEFAULT_OUTPUT_DIR = Path("data/interim/retrieval_benchmark")
 DEFAULT_OUTPUT_DIR_V2 = Path("data/interim/retrieval_benchmark_v2")
+DEFAULT_OUTPUT_DIR_V3 = Path("data/interim/retrieval_benchmark_v3")
 
 BGE_ENCODER_NAME = "bge-m3"
 GTE_ENCODER_NAME = "gte-multilingual"
