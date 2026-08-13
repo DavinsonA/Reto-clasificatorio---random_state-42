@@ -18,6 +18,12 @@ Formato por modelo:
 `HfApi().model_info(model_id).sha` (no `main`, ver `EncoderSpec`). Si un checkpoint
 se re-sube y hay que actualizar la version, resolver de nuevo y dejar constancia
 del cambio aqui, no solo en el commit de git.
+
+`gte-multilingual` fija ademas `code_revision`: su `trust_remote_code=True` carga
+codigo de un repo *distinto* (`Alibaba-NLP/new-impl`), con su propio historial.
+Sin fijarlo, ese codigo podria cambiar en una corrida futura sin que el `revision`
+del checkpoint lo refleje. Ver `src/encoders/gte_compat.py` para el porque hace
+falta ademas un compatibility fix bajo `transformers>=5`.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ REGISTRY: dict[str, EncoderSpec] = {
         embedding_dimension=768,
         max_sequence_length=8192,
         trust_remote_code=True,
+        code_revision="40ced75c3017eb27626c9d4ea981bde21a2662f4",  # Alibaba-NLP/new-impl
     ),
     "multilingual-e5-large": EncoderSpec(
         name="multilingual-e5-large",

@@ -113,3 +113,40 @@ def test_cada_modelo_registrado_tiene_revision_pineada(name):
     spec = get_spec(name)
     assert spec.revision
     assert spec.revision not in ("main", "latest", "HEAD")
+
+
+def test_gte_fija_code_revision_del_repo_de_codigo_remoto():
+    spec = get_spec("gte-multilingual")
+    assert spec.code_revision == "40ced75c3017eb27626c9d4ea981bde21a2662f4"
+    assert spec.code_revision not in ("main", "latest", "HEAD")
+
+
+def test_bge_y_e5_no_declaran_code_revision():
+    assert get_spec("bge-m3").code_revision is None
+    assert get_spec("multilingual-e5-large").code_revision is None
+
+
+def test_code_revision_vacio_se_rechaza():
+    with pytest.raises(EncoderConfigError, match="code_revision"):
+        EncoderSpec(
+            name="x",
+            model_id="x",
+            revision="x",
+            embedding_dimension=1,
+            max_sequence_length=1,
+            trust_remote_code=True,
+            code_revision="",
+        )
+
+
+def test_code_revision_exige_trust_remote_code():
+    with pytest.raises(EncoderConfigError, match="trust_remote_code"):
+        EncoderSpec(
+            name="x",
+            model_id="x",
+            revision="x",
+            embedding_dimension=1,
+            max_sequence_length=1,
+            trust_remote_code=False,
+            code_revision="abc123",
+        )

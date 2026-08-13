@@ -45,6 +45,11 @@ class EncoderSpec:
     `revision` es obligatoria y debe ser un commit SHA concreto (`HfApi().model_info(model_id).sha`),
     nunca `main` ni `latest`: sin ella, dos corridas del benchmark en fechas distintas podrian estar
     embebiendo con pesos diferentes sin que nada lo delate.
+
+    `code_revision` fija por separado el commit del repo de codigo remoto que trae
+    `trust_remote_code=True` (p. ej. `Alibaba-NLP/new-impl` para gte-multilingual): el checkpoint
+    y su codigo pueden vivir en repos distintos del Hub con historiales independientes. `None`
+    para encoders sin codigo remoto (bge-m3, multilingual-e5-large).
     """
 
     name: str
@@ -56,6 +61,7 @@ class EncoderSpec:
     document_prefix: str = ""
     trust_remote_code: bool = False
     normalize_embeddings: bool = True
+    code_revision: str | None = None
 
     def __post_init__(self) -> None:
         """Valida la configuracion; un encoder mal declarado falla al registrarse."""
@@ -69,6 +75,10 @@ class EncoderSpec:
             raise EncoderConfigError("embedding_dimension debe ser positiva")
         if self.max_sequence_length <= 0:
             raise EncoderConfigError("max_sequence_length debe ser positiva")
+        if self.code_revision is not None and not self.code_revision:
+            raise EncoderConfigError("code_revision no puede ser una cadena vacia (usa None)")
+        if self.code_revision is not None and not self.trust_remote_code:
+            raise EncoderConfigError("code_revision exige trust_remote_code=True")
 
     def format_query(self, text: str) -> str:
         """Texto exacto que recibira el tokenizador/modelo para una consulta."""
@@ -83,8 +93,14 @@ def _load_tokenizer(spec: EncoderSpec) -> PreTrainedTokenizerBase:
     """Carga solo el tokenizador: el audit de tokens no necesita los pesos del modelo."""
     from transformers import AutoTokenizer
 
+    kwargs: dict[str, Any] = {}
+    if spec.code_revision is not None:
+        kwargs["code_revision"] = spec.code_revision
     tokenizer = AutoTokenizer.from_pretrained(
-        spec.model_id, revision=spec.revision, trust_remote_code=spec.trust_remote_code
+        spec.model_id,
+        revision=spec.revision,
+        trust_remote_code=spec.trust_remote_code,
+        **kwargs,
     )
     reported = getattr(tokenizer, "model_max_length", None)
     if (
@@ -108,15 +124,29 @@ def _load_sentence_transformer(spec: EncoderSpec, device: str | None = None) -> 
     Fuerza `max_seq_length` al contexto declarado en `spec`: varios checkpoints traen un default
     propio (GTE reporta 32768 via el tokenizer) que no es la decision del equipo. Sin forzarlo,
     `context auditado == context usado durante embedding` dejaria de cumplirse en silencio.
+
+    Aplica el compatibility fix de `gte_compat` cuando corresponde (solo GTE, solo
+    `transformers>=5`): nunca a otro encoder, nunca en silencio (loggea siempre que se aplica).
     """
     from sentence_transformers import SentenceTransformer
+
+    from .gte_compat import fix_gte_rope_buffers, needs_gte_rope_fix
+
+    model_kwargs: dict[str, Any] = {}
+    if spec.code_revision is not None:
+        model_kwargs["code_revision"] = spec.code_revision
 
     model = SentenceTransformer(
         spec.model_id,
         revision=spec.revision,
         trust_remote_code=spec.trust_remote_code,
         device=device,
+        model_kwargs=model_kwargs or None,
     )
+
+    if needs_gte_rope_fix(spec.name):
+        fix_gte_rope_buffers(model[0].auto_model)
+
     if model.max_seq_length != spec.max_sequence_length:
         logger.warning(
             "max_seq_length de SentenceTransformer difiere del contexto declarado, se fuerza | "
