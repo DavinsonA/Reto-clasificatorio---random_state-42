@@ -26,12 +26,31 @@ FRAGMENT_RECALL_KS: tuple[int, ...] = (20, 100)
 GOLD_MATCH_HIGH_CONFIDENCE = 0.6
 GOLD_MATCH_LOW_CONFIDENCE = 0.3
 
+# --- V2: matching evidence-level (microfase de correccion metodologica) --------
+# V1 evaluaba Recall/NDCG/complementariedad contra los `chunk_id` que
+# `GOLD_MATCH_*` resuelve a partir del texto de cada `gold_fragment`. Cuando un
+# fragmento humano cae justo en una frontera de chunk esa resolucion produce
+# DOS chunk_id (ver `evidence.py`): 15 fragmentos gold terminaban contados como
+# ~30 "relevantes" independientes, inflando Recall/Union Recall/complementariedad.
+# V2 evalua contra las 15 `GoldEvidenceUnit` originales, comparando texto contra
+# texto (nunca chunk_id contra chunk_id). Ver `evidence.py`/`evidence_matching.py`.
+FIVEGRAM_N = 5
+EVIDENCE_RECALL_KS: tuple[int, int] = (20, 100)
+# Umbral EXPERIMENTAL de este benchmark interno, NO una regla oficial de
+# CODEFEST. Motivacion: la microvalidacion de extraccion PDF sobre los mismos
+# 15 gold (`docs/research/chunking-best-practices-codefest.md` S13.2) midio
+# recall 5-gram con mediana 1.0 y minimo 0.9658 entre extractor y fuente
+# original; 0.95 es un corte conservador de "cobertura casi completa" para el
+# mismo tipo de metrica aplicada aqui a candidato-vs-evidencia.
+EVIDENCE_HIT_THRESHOLD = 0.95
+
 # --- Rutas de artefactos ---------------------------------------------------------
 
 DEVSET_PATH = Path("data/interim/benchmarks/prechunk/devset.jsonl")
 BGE_INDEX_DIR = Path("data/interim/faiss_experimental/encoder_bge_m3")
 GTE_INDEX_DIR = Path("data/interim/faiss_experimental/encoder_gte_multilingual")
 DEFAULT_OUTPUT_DIR = Path("data/interim/retrieval_benchmark")
+DEFAULT_OUTPUT_DIR_V2 = Path("data/interim/retrieval_benchmark_v2")
 
 BGE_ENCODER_NAME = "bge-m3"
 GTE_ENCODER_NAME = "gte-multilingual"

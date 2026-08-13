@@ -55,12 +55,18 @@ class DocumentSetScore:
 def f1_at_k_documents(
     ranked_doc_ids: list[str], gold_doc_ids: frozenset[str], k: int = DOCUMENT_K
 ) -> DocumentSetScore | None:
-    """`None` si la consulta no tiene documentos gold."""
+    """`None` si la consulta no tiene documentos gold.
+
+    `precision = |retrieved ∩ gold| / k`, denominador FIJO en `k` (CLAUDE.md microfase prompt
+    S17), no `len(top)`: con cardinalidad fija (`entrega/` siempre devuelve exactamente 3
+    documentos) ambos coinciden, pero `len(top)` da una precision matematicamente incorrecta si
+    algun dia hay menos de `k` documentos candidatos.
+    """
     if not gold_doc_ids:
         return None
     top = ranked_doc_ids[:k]
     intersection = len(set(top) & gold_doc_ids)
-    precision = intersection / len(top) if top else 0.0
+    precision = intersection / k
     recall = intersection / min(len(gold_doc_ids), k)
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return DocumentSetScore(precision=precision, recall=recall, f1=f1, intersection=intersection)
