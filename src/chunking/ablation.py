@@ -18,7 +18,6 @@ Aqui no hay embeddings, FAISS ni encoders: la Etapa A de V5 es aritmetica sobre 
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from collections import Counter
@@ -30,7 +29,7 @@ from statistics import mean, median
 from typing import Any
 
 from . import build_drafts
-from .core import ChunkDraft, ChunkingConfig
+from .core import ChunkDraft, ChunkingConfig, config_fingerprint
 from .pack import pack_units
 from .units import RawDocLike, Unit, document_units
 
@@ -68,9 +67,14 @@ class ChunkingVariant:
         return self.config.overlap_units > 0
 
     def fingerprint(self) -> str:
-        """Hash estable de la config: misma config -> mismo id, entre maquinas y corridas."""
-        payload = json.dumps(self.config_dict(), sort_keys=True, ensure_ascii=False)
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+        """Hash estable de la config: misma config -> mismo id, entre maquinas y corridas.
+
+        Delega en `core.config_fingerprint` (compartida con el chunking productivo,
+        `provenance.py`) en vez de reimplementar el hash: `config_dict()` ya cubre
+        los mismos diez campos que `dataclasses.asdict(self.config)`, asi que el
+        resultado es identico al de antes de la extraccion.
+        """
+        return config_fingerprint(self.config)
 
     def config_dict(self) -> dict[str, Any]:
         return {

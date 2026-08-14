@@ -1,12 +1,19 @@
 """Corre el chunker sobre volcados de `RawDoc` y perfila el resultado.
 
-No necesita encoder ni tokenizador: es un artefacto de investigacion.
+No necesita encoder ni tokenizador: es un artefacto de investigacion o, con
+`--preset` y `--manifest`, el camino productivo que materializa un chunking
+congelado (ADR-008) con su procedencia.
 
 uv run --extra cpu python -m src.chunking \
     --input data/interim/final_json.jsonl \
     --target-words 200 --soft-min-words 120 --max-words 250 \
     --output data/interim/chunking/format_aware_v1.jsonl \
     --profile data/interim/chunking/profile_v1.json
+
+uv run --extra cpu python -m src.chunking \
+    --preset format_aware_v2 \
+    --output data/interim/chunking/format_aware_v2.jsonl \
+    --manifest data/interim/chunking/format_aware_v2.manifest.json
 
 El JSONL de salida contiene `ChunkDraft`, **no** la metadata final de FAISS:
 `num_tokens` exige el tokenizador del encoder, que todavia no esta elegido.
@@ -19,14 +26,22 @@ import json
 import logging
 import sys
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from .audit import ChunkingAudit, audit_documents
-from .core import DEFAULT_CONFIG, ChunkingConfig
+from .core import DEFAULT_CONFIG, FORMAT_AWARE_V2_CONFIG, ChunkingConfig
+from .provenance import build_manifest
 
 logger = logging.getLogger(__name__)
+
+# Registro pequeno y deliberado, no un framework de configuracion: una config
+# productiva nombrada por entrada. Cada preset es la config COMPLETA (ADR-008
+# para `format_aware_v2`), no un delta sobre `DEFAULT_CONFIG`.
+PRESETS: dict[str, ChunkingConfig] = {
+    "format_aware_v2": FORMAT_AWARE_V2_CONFIG,
+}
 
 # Volcados documentados por la investigacion (docs/research §25.2). No todos
 # tienen por que existir en cada maquina: se usan los que esten.
@@ -85,19 +100,70 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     """Argumentos de la linea de comandos."""
     parser = argparse.ArgumentParser(prog="python -m src.chunking")
     parser.add_argument("--input", nargs="+", type=Path, default=list(DEFAULT_INPUTS))
-    parser.add_argument("--output", type=Path, help="JSONL de ChunkDraft (investigacion)")
-    parser.add_argument("--profile", type=Path, help="JSON con el perfil estructural")
-    parser.add_argument("--limit", type=int, help="documentos por volcado")
-    # Los defaults salen de DEFAULT_CONFIG: con `slots=True` los atributos de
-    # clase de un dataclass son descriptores, no los valores por defecto.
-    parser.add_argument("--target-words", type=int, default=DEFAULT_CONFIG.target_words)
-    parser.add_argument("--soft-min-words", type=int, default=DEFAULT_CONFIG.soft_min_words)
-    parser.add_argument("--max-words", type=int, default=DEFAULT_CONFIG.max_words)
     parser.add_argument(
-        "--output-target-words", type=int, default=DEFAULT_CONFIG.output_target_words
+        "--output", type=Path, help="JSONL de ChunkDraft (investigacion o produccion)"
     )
-    parser.add_argument("--output-max-words", type=int, default=DEFAULT_CONFIG.output_max_words)
+    parser.add_argument("--profile", type=Path, help="JSON con el perfil estructural")
+    parser.add_argument("--manifest", type=Path, help="JSON con la procedencia (exige --output)")
+    parser.add_argument("--limit", type=int, help="documentos por volcado")
+    parser.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        help=(
+            "config productiva nombrada y COMPLETA (ver PRESETS); los flags de abajo, "
+            "si se pasan explicitamente, la sobreescriben campo a campo"
+        ),
+    )
+    # Sin valor por defecto numerico: `None` significa "no lo toques". La base es
+    # `PRESETS[--preset]` o `DEFAULT_CONFIG`, y solo se sobreescribe lo que el
+    # usuario pidio explicitamente (ver `_resolve_config`). Antes estos flags
+    # tenian defaults concretos de `DEFAULT_CONFIG` y `overlap_units` /
+    # `cross_block_packing` no existian en el CLI: un preset con overlap nunca
+    # llegaba a `ChunkingConfig` sin este cambio.
+    parser.add_argument("--target-words", type=int, default=None)
+    parser.add_argument("--soft-min-words", type=int, default=None)
+    parser.add_argument("--max-words", type=int, default=None)
+    parser.add_argument("--overlap-units", type=int, default=None)
+    parser.add_argument(
+        "--cross-block-packing", dest="cross_block_packing", action="store_true", default=None
+    )
+    parser.add_argument(
+        "--no-cross-block-packing", dest="cross_block_packing", action="store_false"
+    )
+    parser.add_argument("--output-target-words", type=int, default=None)
+    parser.add_argument("--output-max-words", type=int, default=None)
     return parser.parse_args(argv)
+
+
+def _resolve_config(args: argparse.Namespace) -> ChunkingConfig:
+    """Config final: preset (o `DEFAULT_CONFIG`) mas los flags explicitos del usuario.
+
+    Falla rapido si `--preset format_aware_v2` termina en una config distinta a
+    la congelada en ADR-008: un flag explicito que la desvia es casi siempre un
+    error de invocacion, no una intencion real de correr una variante nueva.
+    """
+    base = PRESETS[args.preset] if args.preset else DEFAULT_CONFIG
+    overrides = {
+        name: value
+        for name, value in (
+            ("target_words", args.target_words),
+            ("soft_min_words", args.soft_min_words),
+            ("max_words", args.max_words),
+            ("overlap_units", args.overlap_units),
+            ("cross_block_packing", args.cross_block_packing),
+            ("output_target_words", args.output_target_words),
+            ("output_max_words", args.output_max_words),
+        )
+        if value is not None
+    }
+    config = replace(base, **overrides) if overrides else base
+    if args.preset == "format_aware_v2" and config != FORMAT_AWARE_V2_CONFIG:
+        raise ValueError(
+            "format_aware_v2 exige la config congelada de ADR-008 "
+            "(120/72/250/overlap=1); un flag explicito la desvio: "
+            f"{overrides}"
+        )
+    return config
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -108,22 +174,23 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+    if args.manifest and not args.output:
+        raise ValueError("--manifest exige --output: el manifest hashea el artefacto escrito")
 
-    config = ChunkingConfig(
-        target_words=args.target_words,
-        soft_min_words=args.soft_min_words,
-        max_words=args.max_words,
-        output_target_words=args.output_target_words,
-        output_max_words=args.output_max_words,
-    )
+    config = _resolve_config(args)
     audit = ChunkingAudit(config)
+
+    used_inputs = [path for path in args.input if path.is_file()]
+    skipped_inputs = [path for path in args.input if path not in used_inputs]
+    for path in skipped_inputs:
+        logger.warning("volcado no disponible, se omite | %s", path)
 
     handle = None
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         handle = args.output.open("w", encoding="utf-8")
     try:
-        for chunk in audit_documents(_documents(args.input, args.limit), config, audit):
+        for chunk in audit_documents(_documents(used_inputs, args.limit), config, audit):
             if handle:
                 handle.write(json.dumps(chunk.as_dict(), ensure_ascii=False) + "\n")
     finally:
@@ -143,6 +210,27 @@ def main(argv: list[str] | None = None) -> int:
         summary["global"]["oversized_atomic_chunks"],
         summary["global"]["lost_words"],
     )
+
+    if args.manifest:
+        manifest = build_manifest(
+            artifact_name=args.preset or args.output.stem,
+            artifact_path=args.output,
+            config=config,
+            audit=audit,
+            used_inputs=used_inputs,
+            skipped_inputs=skipped_inputs,
+        )
+        args.manifest.parent.mkdir(parents=True, exist_ok=True)
+        args.manifest.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        logger.info(
+            "manifest escrito | %s | integridad_ok=%s | sha256=%s",
+            args.manifest,
+            manifest["integrity"]["ok"],
+            manifest["artifact_sha256"],
+        )
+
     return 0 if audit.raw_docs else 1
 
 

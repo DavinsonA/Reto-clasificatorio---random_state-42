@@ -7,6 +7,8 @@ igual que en `src/extract/`.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
@@ -105,6 +107,35 @@ class ChunkingConfig:
 
 
 DEFAULT_CONFIG = ChunkingConfig()
+
+# ADR-008: promocion de C5 (V5/V5.1) al candidato productivo de chunking. Baja
+# `target_words` de 200 a 120 -- el techo de representacion medido en V5 sube de
+# 4/15 a 12/15 -- y activa `overlap_units=1`, que V5.1 midio auditable y sin
+# perdida de contenido. `cross_block_packing` no cambia: la promocion mueve
+# granularidad y solapamiento, no la politica de fronteras de bloque.
+FORMAT_AWARE_V2_CONFIG = ChunkingConfig(
+    target_words=120,
+    soft_min_words=72,
+    max_words=250,
+    overlap_units=1,
+    cross_block_packing=True,
+    output_target_words=240,
+    output_max_words=250,
+)
+
+
+def config_fingerprint(config: ChunkingConfig) -> str:
+    """Huella estable de una config: misma config -> misma huella, entre maquinas y corridas.
+
+    Serializa TODOS los campos del dataclass con claves ordenadas, asi que dos
+    configs con los mismos valores coinciden sin importar el orden en que se
+    construyeron. La usan tanto `ablation.ChunkingVariant.fingerprint()` (que
+    delega aqui) como el manifest de procedencia del chunking productivo
+    (`provenance.py`) -- una sola implementacion, no dos que puedan divergir.
+    """
+    payload = json.dumps(asdict(config), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
 
 # Techo por encima del bloque mas largo del corpus (9.235 palabras, `F1-AIINDEX-041`):
 # con el no se segmenta ningun bloque y ninguna unidad queda marcada oversized.

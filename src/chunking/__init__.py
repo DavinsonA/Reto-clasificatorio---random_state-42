@@ -15,6 +15,7 @@ from collections.abc import Iterable, Iterator
 
 from .core import (
     DEFAULT_CONFIG,
+    FORMAT_AWARE_V2_CONFIG,
     NARRATIVE_FORMATS,
     NO_SPLIT_WORDS,
     TABULAR_FORMATS,
@@ -24,6 +25,7 @@ from .core import (
     TokenCounter,
     UnknownFormatError,
     block_as_chunk_config,
+    config_fingerprint,
     count_words,
     make_chunk_id,
     materialize_metadata,
@@ -41,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_CONFIG",
+    "FORMAT_AWARE_V2_CONFIG",
     "NARRATIVE_FORMATS",
     "NO_SPLIT_WORDS",
     "TABULAR_FORMATS",
@@ -60,6 +63,7 @@ __all__ = [
     "chunk_documents",
     "chunk_text",
     "chunk_words",
+    "config_fingerprint",
     "count_words",
     "document_units",
     "evidence_candidates",

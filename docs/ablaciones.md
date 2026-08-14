@@ -108,3 +108,19 @@ gana: `ProxyNDCG@10` 0,1294 vs 0,0625 y `F1@3` 0,1958 vs 0,1542 (además `Hit@3`
 `MRR` 0,3057 vs 0,2797). Y **ninguna configuración recupera todavía el `ProxyNDCG@10` del
 baseline** (0,1420). Ver `CLAUDE.md` §5 sobre Borda: la decisión final es del equipo, no del
 criterio automático. Artefactos: `data/interim/chunking_benchmark_v5_1/`.
+
+**`decision.json` no se modifica** — es el resultado correcto del criterio que V5.1 declaró, y
+reescribirlo falsearía la historia de esa fase. La decisión de equipo posterior está en
+`docs/decisions/008-promocion-chunking-format-aware-v2.md`.
+
+### Promoción a producción — ADR-008 (2026-08-13)
+
+Por Borda sobre las dos métricas del leaderboard (`ProxyNDCG@10` y `F1@3`, ambas favorables a
+C5 en la tabla de arriba), el equipo adopta **C5 como `format_aware_v2`**, no `RECOMMEND_C2`.
+Config productiva: `FORMAT_AWARE_V2_CONFIG` en `src/chunking/core.py`
+(`target=120/soft_min=72/max=250/overlap=1`, huella `f2c665528a008aa9` — idéntica a
+`c5_smaller_120_overlap`). Materialización elegida para producción:
+`best_bge_similarity_adjacent_if_fits` (M4), sin reimplementarla. Detalle completo, impacto en
+conteo de chunks (1,90x) y duplicación (1,26x), y limitaciones del devset: ver el ADR. No se
+construyó ningún índice FAISS ni se ejecutaron embeddings en esta fase; el artefacto productivo
+es `data/interim/chunking/format_aware_v2.jsonl` con su manifest de procedencia.

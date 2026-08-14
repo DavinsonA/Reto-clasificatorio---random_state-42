@@ -104,6 +104,7 @@ class ChunkingAudit:
     duplicated_chunk_ids: list[str] = field(default_factory=list)
     non_contiguous_positions: list[str] = field(default_factory=list)
     cross_document_errors: list[str] = field(default_factory=list)
+    empty_text_chunks: list[str] = field(default_factory=list)
     conservation_failures: list[ConservationResult] = field(default_factory=list)
     lost_words: int = 0
     duplicated_words: int = 0
@@ -142,6 +143,8 @@ class ChunkingAudit:
             if chunk.chunk_id in self._seen_chunk_ids:
                 self.duplicated_chunk_ids.append(chunk.chunk_id)
             self._seen_chunk_ids.add(chunk.chunk_id)
+            if not chunk.texto.strip():
+                self.empty_text_chunks.append(chunk.chunk_id)
             self.output_words += chunk.num_words
             stats.words.append(chunk.num_words)
             if chunk.oversized_atomic:
@@ -200,6 +203,7 @@ class ChunkingAudit:
                 "duplicated_chunk_ids": self.duplicated_chunk_ids[:MAX_REPORTED_FAILURES],
                 "non_contiguous_positions": self.non_contiguous_positions[:MAX_REPORTED_FAILURES],
                 "cross_document_errors": self.cross_document_errors[:MAX_REPORTED_FAILURES],
+                "empty_text_chunks": self.empty_text_chunks[:MAX_REPORTED_FAILURES],
                 "conservation_failures": [
                     {
                         "doc_id": failure.doc_id,
