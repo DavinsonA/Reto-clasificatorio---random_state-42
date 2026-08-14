@@ -78,3 +78,33 @@ No comparar esas dos columnas entre chunkings con distinta representabilidad raw
 
 Ninguna variante se adopta todavía: falta la medición productiva de fragmento sobre el nuevo
 universo de chunks. Artefactos: `data/interim/chunking_benchmark_v5/`.
+
+### V5.1 — materialización productiva sobre C2/C5 (2026-08-13)
+
+Cierra el hueco que V5 dejó abierto: se materializa el `text` con cinco políticas que **no ven el
+gold**, sobre el mismo ranking BGE y los mismos índices de V5 (nada se reconstruye). Se añade el
+merge consciente del solapamiento para C5 (dedup de la unidad repetida en la frontera, solo
+igualdad exacta) y una política nueva, `best_bge_similarity_adjacent_if_fits` (M4), que elige
+vecino por similitud BGE consulta↔vecino en vez de por rank.
+
+- **Proxy fragmento**: `ProxyNDCG@10` sobre el texto **materializado** y `EvR@100` micro.
+- **Proxy documento**: `F1@3` macro. No depende de la materialización (verificado).
+- Regresión: las métricas documentales por consulta reproducen V5 exactamente (18/18).
+
+| Fecha | Variante | Qué cambia vs. baseline | Proxy | Frag. | Doc. | Δ frag. | Δ doc. | Decisión | Responsable |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-08-13 | C2 + `raw` | chunking 120 | ProxyNDCG@10 / F1@3 | 0,0000 | 0,1542 | −0,1420 | +0,0292 | descartada: representabilidad raw 0/15 | Daniela Castaño |
+| 2026-08-13 | C2 + `next_if_fits` | chunking 120 + materialización | ProxyNDCG@10 / F1@3 | 0,0625 | 0,1542 | −0,0795 | +0,0292 | **máx. cobertura**: EvR@100 7/15, captura 100 % del oráculo | Daniela Castaño |
+| 2026-08-13 | C2 + `best_bge_similarity` | chunking 120 + M4 | ProxyNDCG@10 / F1@3 | 0,0878 | 0,1542 | −0,0542 | +0,0292 | mejor orden que M2 pero solo 4/15 | Daniela Castaño |
+| 2026-08-13 | C5 + `previous_if_fits` | chunking 120 + overlap | ProxyNDCG@10 / F1@3 | 0,0505 | 0,1958 | −0,0915 | +0,0708 | 6/15 | Daniela Castaño |
+| 2026-08-13 | C5 + `best_bge_similarity` | chunking 120 + overlap + M4 | ProxyNDCG@10 / F1@3 | **0,1294** | **0,1958** | −0,0126 | +0,0708 | **mejor en las dos métricas puntuadas** | Daniela Castaño |
+
+Baseline C0 (BGE, V2/V3): `ProxyNDCG@10` = 0,1420 y `F1@3` = 0,1250.
+
+**Tensión que la decisión automática no resuelve.** La regla declarada en el prompt elige por
+`EvR@100` y devuelve `RECOMMEND_C2` (7 evidencias frente a 6). Pero `EvR@100` es un proxy de
+disponibilidad de candidatos, **no** una métrica del leaderboard. En las dos que sí puntúan, C5
+gana: `ProxyNDCG@10` 0,1294 vs 0,0625 y `F1@3` 0,1958 vs 0,1542 (además `Hit@3` 0,500 vs 0,375 y
+`MRR` 0,3057 vs 0,2797). Y **ninguna configuración recupera todavía el `ProxyNDCG@10` del
+baseline** (0,1420). Ver `CLAUDE.md` §5 sobre Borda: la decisión final es del equipo, no del
+criterio automático. Artefactos: `data/interim/chunking_benchmark_v5_1/`.
