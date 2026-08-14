@@ -43,9 +43,14 @@ def test_config_rechaza_parametros_incoherentes(kwargs):
         ChunkingConfig(**kwargs)
 
 
-def test_config_overlap_no_soportado_falla_explicitamente():
-    with pytest.raises(NotImplementedError):
-        ChunkingConfig(overlap_units=1)
+def test_config_acepta_overlap_positivo():
+    """E3 (research §7.2) ya esta implementado: `overlap_units>=1` es config valida.
+
+    Antes de la ablacion V5 la interfaz existia pero levantaba `NotImplementedError`.
+    El comportamiento con `overlap_units=0` no cambia (ver `test_chunking_overlap.py`).
+    """
+    assert ChunkingConfig(overlap_units=1).overlap_units == 1
+    assert ChunkingConfig(overlap_units=2).overlap_units == 2
 
 
 def test_chunk_draft_es_inmutable():

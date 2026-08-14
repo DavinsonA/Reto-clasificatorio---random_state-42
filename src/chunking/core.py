@@ -57,6 +57,12 @@ class ChunkingConfig:
     empaquetado; una unidad indivisible que ya supere el techo se emite entera
     (ver `pack.py`). Los presupuestos de salida (`output_*`) rigen la evidencia
     entregada, que es una unidad distinta de la indexada.
+
+    `overlap_units` es el numero de unidades finales de un chunk que se repiten
+    al inicio del siguiente (E3 del research §7.2: solapamiento medido en
+    UNIDADES -- oracion, fila o feature --, la unica variante compatible con la
+    regla de completitud linguistica). `0` es el baseline y su camino de codigo
+    es identico al de antes de implementarse el solapamiento (ver `pack.py`).
     """
 
     target_words: int = 200
@@ -96,10 +102,6 @@ class ChunkingConfig:
             raise ValueError("max_tokens debe ser positivo o None")
         if self.overlap_units < 0:
             raise ValueError("overlap_units no puede ser negativo")
-        if self.overlap_units != 0:
-            # La interfaz queda, el comportamiento no: E3 se implementa cuando
-            # se mida, no antes (docs/research §7).
-            raise NotImplementedError("el baseline solo soporta overlap_units=0")
 
 
 DEFAULT_CONFIG = ChunkingConfig()

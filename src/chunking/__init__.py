@@ -55,6 +55,7 @@ __all__ = [
     "UnknownFormatError",
     "UnreturnableAtomicUnitError",
     "block_as_chunk_config",
+    "build_drafts",
     "chunk_document",
     "chunk_documents",
     "chunk_text",
@@ -90,7 +91,24 @@ def chunk_document(
         Los `ChunkDraft` del documento, en orden.
     """
     units = document_units(raw_doc, config, telemetry)
-    for posicion, group in enumerate(pack_units(units, config, token_counter)):
+    yield from build_drafts(
+        raw_doc, pack_units(units, config, token_counter), config, token_counter
+    )
+
+
+def build_drafts(
+    raw_doc: RawDocLike,
+    groups: Iterable[tuple[Unit, ...]],
+    config: ChunkingConfig = DEFAULT_CONFIG,
+    token_counter: TokenCounter | None = None,
+) -> Iterator[ChunkDraft]:
+    """Convierte grupos ya empaquetados en `ChunkDraft`, numerando `posicion` desde 0.
+
+    Se separa de `chunk_document` para que la ablacion de chunking (`src/chunking/ablation.py`)
+    pueda segmentar el documento UNA vez y empaquetarlo con varias configuraciones sin repetir
+    pysbd ni duplicar la construccion del draft. `chunk_document` sigue siendo el camino normal.
+    """
+    for posicion, group in enumerate(groups):
         yield ChunkDraft(
             doc_id=raw_doc.doc_id,
             chunk_id=make_chunk_id(raw_doc.doc_id, posicion),
