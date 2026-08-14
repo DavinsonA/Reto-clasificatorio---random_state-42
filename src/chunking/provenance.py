@@ -77,6 +77,11 @@ def audit_integrity(audit: ChunkingAudit) -> dict[str, Any]:
         "positions_contiguous": traceability["non_contiguous_positions"] == [],
         "no_cross_document_chunks": traceability["cross_document_errors"] == [],
         "no_empty_text": traceability["empty_text_chunks"] == [],
+        # `document_count > 0` y `chunk_count > 0` son totales del corpus: un documento
+        # individual sin chunks (posible si un formato lo devuelve vacio) no los mueve y
+        # pasaba desapercibido. `ChunkingAudit` ya lo detecta (`documents_with_zero_chunks`);
+        # antes de este check no se usaba para invalidar `ok`.
+        "no_zero_chunk_documents": traceability["documents_with_zero_chunks"] == [],
         "no_lost_words": global_["lost_words"] == 0,
     }
     return {

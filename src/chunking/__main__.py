@@ -43,6 +43,11 @@ PRESETS: dict[str, ChunkingConfig] = {
     "format_aware_v2": FORMAT_AWARE_V2_CONFIG,
 }
 
+
+class ProductiveInputError(ValueError):
+    """Un `--preset` productivo no recibio el universo canonico de inputs."""
+
+
 # Volcados documentados por la investigacion (docs/research §25.2). No todos
 # tienen por que existir en cada maquina: se usan los que esten.
 DEFAULT_INPUTS = (
@@ -166,6 +171,47 @@ def _resolve_config(args: argparse.Namespace) -> ChunkingConfig:
     return config
 
 
+def _verify_productive_inputs(preset: str | None, inputs: list[Path], limit: int | None) -> None:
+    """`--preset` productivo exige el universo canonico completo, sin `--limit`, en orden.
+
+    Un preset nombra el artefacto CANONICO (`format_aware_v2`): correrlo sobre `--limit` o
+    sobre un subconjunto/superconjunto de `DEFAULT_INPUTS` produciria algo con ese nombre
+    pero que representa solo una parte del corpus, en silencio. Corre ANTES de tocar disco
+    -- nada aqui depende de que los archivos existan, asi que falla antes de procesar nada.
+
+    El orden tambien se exige: `_documents` lee los volcados en el orden recibido y eso fija
+    el orden de las lineas del JSONL de salida. Reordenar el mismo conjunto de archivos no
+    cambiaria que chunks existen, pero si el artefacto byte a byte, que es exactamente lo que
+    se compara contra las corridas historicas (ADR-008).
+
+    Investigacion sin `--preset` no pasa por aqui: sigue admitiendo `--limit` e inputs
+    parciales o personalizados sin restriccion.
+    """
+    if preset is None:
+        return
+    if limit is not None:
+        raise ProductiveInputError(
+            f"--preset {preset} no admite --limit: produciria un corpus parcial"
+        )
+    canonical = list(DEFAULT_INPUTS)
+    duplicates = sorted({str(path) for path in inputs if inputs.count(path) > 1})
+    if duplicates:
+        raise ProductiveInputError(f"--preset {preset} recibio inputs duplicados: {duplicates}")
+    missing = [str(path) for path in canonical if path not in inputs]
+    extra = [str(path) for path in inputs if path not in canonical]
+    if missing or extra:
+        raise ProductiveInputError(
+            f"--preset {preset} exige exactamente el universo canonico de DEFAULT_INPUTS "
+            f"(un conjunto parcial no es un corpus productivo); faltan={missing} extra={extra}"
+        )
+    if inputs != canonical:
+        raise ProductiveInputError(
+            f"--preset {preset} exige DEFAULT_INPUTS en su orden canonico "
+            "(determina el orden de las lineas del artefacto); "
+            f"recibido={[str(path) for path in inputs]}"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Punto de entrada de la linea de comandos."""
     args = _parse_args(argv)
@@ -176,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.manifest and not args.output:
         raise ValueError("--manifest exige --output: el manifest hashea el artefacto escrito")
+    _verify_productive_inputs(args.preset, args.input, args.limit)
 
     config = _resolve_config(args)
     audit = ChunkingAudit(config)
@@ -184,6 +231,11 @@ def main(argv: list[str] | None = None) -> int:
     skipped_inputs = [path for path in args.input if path not in used_inputs]
     for path in skipped_inputs:
         logger.warning("volcado no disponible, se omite | %s", path)
+    if args.preset and skipped_inputs:
+        raise ProductiveInputError(
+            f"--preset {args.preset} exige que todos los inputs canonicos existan en disco; "
+            f"faltan del sistema de archivos: {[str(path) for path in skipped_inputs]}"
+        )
 
     handle = None
     if args.output:

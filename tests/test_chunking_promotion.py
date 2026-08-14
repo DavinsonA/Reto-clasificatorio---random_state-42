@@ -17,8 +17,16 @@ from pathlib import Path
 
 import pytest
 
+import src.chunking.__main__ as main_module
 from src.chunking import chunk_document
-from src.chunking.__main__ import RawDocRecord, _parse_args, _resolve_config, main
+from src.chunking.__main__ import (
+    ProductiveInputError,
+    RawDocRecord,
+    _parse_args,
+    _resolve_config,
+    _verify_productive_inputs,
+    main,
+)
 from src.chunking.audit import ChunkingAudit, audit_documents
 from src.chunking.core import DEFAULT_CONFIG, FORMAT_AWARE_V2_CONFIG, ChunkDraft, config_fingerprint
 from src.chunking.provenance import (
@@ -122,6 +130,72 @@ def test_resolve_config_preset_permite_cross_block_packing_explicito_coincidente
     assert config == FORMAT_AWARE_V2_CONFIG
 
 
+# --- Gap B: `_verify_productive_inputs` (sin tocar disco) --------------------------------------------
+#
+# `DEFAULT_INPUTS` real tiene 6 archivos que no existen en un checkout limpio del repo. Estos
+# tests monkeypatchean `main_module.DEFAULT_INPUTS` a un universo canonico sintetico de 3 rutas
+# -- ninguna necesita existir en disco, porque `_verify_productive_inputs` es logica pura sobre
+# la LISTA de paths recibida, previa a cualquier `is_file()`.
+
+
+@pytest.fixture
+def canonical_inputs(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    canonical = [Path("a.jsonl"), Path("b.jsonl"), Path("c.jsonl")]
+    monkeypatch.setattr(main_module, "DEFAULT_INPUTS", tuple(canonical))
+    return canonical
+
+
+def test_verify_productive_inputs_sin_preset_no_restringe_nada(
+    canonical_inputs: list[Path],
+) -> None:
+    """Investigacion (sin --preset) sigue admitiendo --limit e inputs parciales/custom."""
+    _verify_productive_inputs(None, [Path("cualquier_cosa.jsonl")], limit=5)  # no debe lanzar
+
+
+def test_verify_productive_inputs_preset_con_universo_completo_pasa(
+    canonical_inputs: list[Path],
+) -> None:
+    _verify_productive_inputs("format_aware_v2", canonical_inputs, limit=None)  # no debe lanzar
+
+
+def test_verify_productive_inputs_preset_rechaza_limit(canonical_inputs: list[Path]) -> None:
+    with pytest.raises(ProductiveInputError, match="--limit"):
+        _verify_productive_inputs("format_aware_v2", canonical_inputs, limit=10)
+
+
+def test_verify_productive_inputs_preset_rechaza_input_faltante(
+    canonical_inputs: list[Path],
+) -> None:
+    subset = canonical_inputs[:-1]  # falta "c.jsonl"
+    with pytest.raises(ProductiveInputError, match="canonico"):
+        _verify_productive_inputs("format_aware_v2", subset, limit=None)
+
+
+def test_verify_productive_inputs_preset_rechaza_input_extra(
+    canonical_inputs: list[Path],
+) -> None:
+    superset = [*canonical_inputs, Path("d_no_canonico.jsonl")]
+    with pytest.raises(ProductiveInputError, match="canonico"):
+        _verify_productive_inputs("format_aware_v2", superset, limit=None)
+
+
+def test_verify_productive_inputs_preset_rechaza_input_duplicado(
+    canonical_inputs: list[Path],
+) -> None:
+    con_duplicado = [*canonical_inputs, canonical_inputs[0]]
+    with pytest.raises(ProductiveInputError, match="duplicad"):
+        _verify_productive_inputs("format_aware_v2", con_duplicado, limit=None)
+
+
+def test_verify_productive_inputs_preset_rechaza_orden_distinto(
+    canonical_inputs: list[Path],
+) -> None:
+    """Mismo conjunto, orden distinto: rompe el determinismo byte a byte del artefacto (ADR-008)."""
+    reordenado = list(reversed(canonical_inputs))
+    with pytest.raises(ProductiveInputError, match="orden"):
+        _verify_productive_inputs("format_aware_v2", reordenado, limit=None)
+
+
 # --- produccion no depende de ablation.py -----------------------------------------------------------
 
 
@@ -222,6 +296,40 @@ def test_audit_integrity_detecta_perdida_de_palabras_sin_tumbar_el_proceso() -> 
     assert integrity["ok"] is False
     assert integrity["checks"]["no_lost_words"] is False
     assert integrity["checks"]["document_count_positive"] is True  # el resto sigue evaluandose
+
+
+def test_documento_sin_chunks_invalida_integrity_ok() -> None:
+    """Gap A: `document_count > 0` y `chunk_count > 0` son totales del corpus y no lo detectan.
+
+    Un documento individual con cero chunks (p. ej. bloques vacios tras limpieza) no mueve
+    ninguno de esos dos totales si hay otros documentos validos en la corrida: antes de este
+    check, `integrity["ok"]` podia ser `True` con un documento entero invisible para retrieval.
+    """
+    documento_valido = make_doc("json", [words(80), words(80)], doc_id="F2-VALIDO-001")
+    # `RawDoc` nunca tiene cero bloques (invariante del contrato de extraccion), pero un
+    # bloque puede quedar vacio tras la limpieza: es el camino real que produce cero chunks.
+    documento_vacio = make_doc("json", ["   ", ""], doc_id="F2-VACIO-001")
+
+    audit = ChunkingAudit(FORMAT_AWARE_V2_CONFIG)
+    list(audit_documents([documento_valido, documento_vacio], FORMAT_AWARE_V2_CONFIG, audit))
+
+    integrity = audit_integrity(audit)
+    assert integrity["checks"]["no_zero_chunk_documents"] is False
+    assert integrity["ok"] is False
+    # Los totales agregados siguen siendo positivos: por si solos no bastan (la razon del gap).
+    assert integrity["document_count"] > 0
+    assert integrity["chunk_count"] > 0
+
+
+def test_integrity_expone_exactamente_ocho_checks() -> None:
+    """Regresion de conteo: Gap A agrega `no_zero_chunk_documents` (7 -> 8 checks)."""
+    raw_doc = make_doc("json", [words(80), words(80)])
+    audit = ChunkingAudit(FORMAT_AWARE_V2_CONFIG)
+    list(audit_documents([raw_doc], FORMAT_AWARE_V2_CONFIG, audit))
+
+    integrity = audit_integrity(audit)
+    assert len(integrity["checks"]) == 8
+    assert "no_zero_chunk_documents" in integrity["checks"]
 
 
 def test_duplicacion_por_overlap_se_reporta_y_no_es_un_fallo() -> None:
@@ -346,9 +454,14 @@ def _sample_records() -> list[RawDocRecord]:
     ]
 
 
-def test_cli_preset_format_aware_v2_produce_overlap_units_1_end_to_end(tmp_path: Path) -> None:
+def test_cli_preset_format_aware_v2_produce_overlap_units_1_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     input_path = tmp_path / "input.jsonl"
     _write_input_dump(input_path, _sample_records())
+    # El guard productivo (Gap B) exige el universo canonico exacto: en este test el
+    # universo canonico ES el unico input sintetico, no el corpus real de 6 volcados.
+    monkeypatch.setattr(main_module, "DEFAULT_INPUTS", (input_path,))
     output_path = tmp_path / "format_aware_v2.jsonl"
     manifest_path = tmp_path / "format_aware_v2.manifest.json"
 
@@ -375,9 +488,12 @@ def test_cli_preset_format_aware_v2_produce_overlap_units_1_end_to_end(tmp_path:
     assert len(lines) == manifest["chunk_count"] > 0
 
 
-def test_cli_preset_con_overlap_units_0_falla_en_vez_de_generar_en_silencio(tmp_path: Path) -> None:
+def test_cli_preset_con_overlap_units_0_falla_en_vez_de_generar_en_silencio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     input_path = tmp_path / "input.jsonl"
     _write_input_dump(input_path, _sample_records())
+    monkeypatch.setattr(main_module, "DEFAULT_INPUTS", (input_path,))
     output_path = tmp_path / "format_aware_v2.jsonl"
 
     with pytest.raises(ValueError, match="ADR-008"):
@@ -395,9 +511,12 @@ def test_cli_preset_con_overlap_units_0_falla_en_vez_de_generar_en_silencio(tmp_
         )
 
 
-def test_cli_genera_el_mismo_artefacto_de_forma_deterministica(tmp_path: Path) -> None:
+def test_cli_genera_el_mismo_artefacto_de_forma_deterministica(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     input_path = tmp_path / "input.jsonl"
     _write_input_dump(input_path, _sample_records())
+    monkeypatch.setattr(main_module, "DEFAULT_INPUTS", (input_path,))
 
     output_a = tmp_path / "a.jsonl"
     output_b = tmp_path / "b.jsonl"
@@ -419,6 +538,67 @@ def test_cli_genera_el_mismo_artefacto_de_forma_deterministica(tmp_path: Path) -
 def test_cli_manifest_sin_output_falla_explicitamente(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="--manifest"):
         main(["--manifest", str(tmp_path / "m.json")])
+
+
+def test_cli_preset_rechaza_subset_de_inputs_existentes_en_disco(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gap B, capa 2: el universo canonico esta completo en `--input`, pero falta en disco."""
+    existe = tmp_path / "existe.jsonl"
+    no_existe = tmp_path / "no_existe.jsonl"
+    _write_input_dump(existe, _sample_records())
+    # `no_existe` nunca se escribe: es el input canonico ausente del sistema de archivos.
+    monkeypatch.setattr(main_module, "DEFAULT_INPUTS", (existe, no_existe))
+
+    with pytest.raises(ProductiveInputError, match="disco"):
+        main(
+            [
+                "--preset",
+                "format_aware_v2",
+                "--output",
+                str(tmp_path / "out.jsonl"),
+            ]
+        )
+
+
+def test_cli_sin_preset_sigue_permitiendo_limit(tmp_path: Path) -> None:
+    """El hardening aplica al contrato `format_aware_v2`, no al chunker generico."""
+    input_path = tmp_path / "input.jsonl"
+    _write_input_dump(input_path, _sample_records() * 3)
+    output_path = tmp_path / "sample.jsonl"
+
+    exit_code = main(
+        [
+            "--input",
+            str(input_path),
+            "--target-words",
+            "120",
+            "--soft-min-words",
+            "72",
+            "--max-words",
+            "250",
+            "--overlap-units",
+            "1",
+            "--limit",
+            "1",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert output_path.exists()
+
+
+def test_cli_sin_preset_sigue_permitiendo_input_custom_parcial(tmp_path: Path) -> None:
+    input_path = tmp_path / "solo_este.jsonl"
+    _write_input_dump(input_path, _sample_records())
+    output_path = tmp_path / "sample.jsonl"
+
+    exit_code = main(["--input", str(input_path), "--output", str(output_path)])
+
+    assert exit_code == 0
+    assert output_path.exists()
 
 
 # --- determinismo a nivel de chunk_document (config productiva, con overlap) --------------------------
