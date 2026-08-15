@@ -13,9 +13,11 @@ import json
 
 import faiss
 import numpy as np
+import pytest
 
 from src.chunking import ChunkDraft, block_as_chunk_config, chunk_document
 from src.encoders.build import (
+    ChunkingProvenanceError,
     IntegrityReport,
     _read_metadata_rows,
     _sample_indices,
@@ -36,11 +38,13 @@ class FakeBuildModel:
         self.tokens_per_word = tokens_per_word
         self.model_dtype = "float32"
         self.model_device = "cpu"
+        self.encode_calls = 0
 
     def count_document_tokens_batch(self, texts: list[str]) -> list[int]:
         return [len(text.split()) * self.tokens_per_word for text in texts]
 
     def encode_documents(self, texts: list[str], batch_size: int) -> np.ndarray:
+        self.encode_calls += 1
         return self._encode(texts)
 
     def encode_queries(self, texts: list[str], batch_size: int) -> np.ndarray:
@@ -161,13 +165,21 @@ def test_build_index_registra_ruta_y_sha256_del_chunking_source(tmp_path):
     assert report["chunking_artifact_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_build_index_copia_config_fingerprint_si_hay_manifest(tmp_path):
+def _write_manifest(path, chunks_path, fingerprint="deadbeef00000000", **overrides):
+    """Manifest coherente con `chunks_path` salvo lo que `overrides` cambie a proposito."""
+    payload = {
+        "artifact_sha256": hashlib.sha256(chunks_path.read_bytes()).hexdigest(),
+        "config_fingerprint": fingerprint,
+    }
+    payload.update(overrides)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_build_index_copia_config_fingerprint_si_el_manifest_describe_los_chunks(tmp_path):
     chunks = _make_chunk_drafts([words(10, "a")])
     path = _write_chunk_drafts(tmp_path, chunks)
-    manifest_path = tmp_path / "chunks.manifest.json"
-    manifest_path.write_text(
-        json.dumps({"config_fingerprint": "deadbeef00000000"}), encoding="utf-8"
-    )
+    manifest_path = _write_manifest(tmp_path / "chunks.manifest.json", path)
     model = FakeBuildModel(_spec())
 
     report = build_index(
@@ -176,6 +188,7 @@ def test_build_index_copia_config_fingerprint_si_hay_manifest(tmp_path):
 
     assert report["chunking_config_fingerprint"] == "deadbeef00000000"
     assert report["chunking_manifest_path"] == str(manifest_path)
+    assert report["chunking_artifact_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_build_index_sin_manifest_no_inventa_config_fingerprint(tmp_path):
@@ -189,20 +202,64 @@ def test_build_index_sin_manifest_no_inventa_config_fingerprint(tmp_path):
     assert "chunking_manifest_path" not in report
 
 
-def test_build_index_manifest_inexistente_se_ignora_sin_fallar(tmp_path):
+def test_build_index_manifest_pedido_pero_inexistente_falla(tmp_path):
+    """Pedir el manifest es afirmar procedencia: ignorarlo en silencio la falsearia."""
     chunks = _make_chunk_drafts([words(10, "a")])
     path = _write_chunk_drafts(tmp_path, chunks)
     model = FakeBuildModel(_spec())
 
-    report = build_index(
-        model,
-        path,
-        tmp_path / "out",
-        batch_size=1,
-        chunking_manifest_path=tmp_path / "no_existe.manifest.json",
-    )
+    with pytest.raises(ChunkingProvenanceError, match="no existe"):
+        build_index(
+            model,
+            path,
+            tmp_path / "out",
+            batch_size=1,
+            chunking_manifest_path=tmp_path / "no_existe.manifest.json",
+        )
 
-    assert "chunking_config_fingerprint" not in report
+
+def test_build_index_manifest_de_otro_artefacto_falla(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    manifest_path = _write_manifest(
+        tmp_path / "chunks.manifest.json", path, artifact_sha256="0" * 64
+    )
+    model = FakeBuildModel(_spec())
+
+    with pytest.raises(ChunkingProvenanceError, match="no describe el artefacto"):
+        build_index(
+            model, path, tmp_path / "out", batch_size=1, chunking_manifest_path=manifest_path
+        )
+
+
+@pytest.mark.parametrize("missing_field", ["artifact_sha256", "config_fingerprint"])
+def test_build_index_manifest_incompleto_falla(tmp_path, missing_field):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    manifest_path = _write_manifest(tmp_path / "chunks.manifest.json", path, **{missing_field: ""})
+    model = FakeBuildModel(_spec())
+
+    with pytest.raises(ChunkingProvenanceError, match=missing_field):
+        build_index(
+            model, path, tmp_path / "out", batch_size=1, chunking_manifest_path=manifest_path
+        )
+
+
+def test_build_index_valida_el_manifest_antes_de_embeber(tmp_path):
+    """Fail-fast: un manifest roto no debe costar una corrida completa de GPU."""
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    manifest_path = _write_manifest(
+        tmp_path / "chunks.manifest.json", path, artifact_sha256="0" * 64
+    )
+    model = FakeBuildModel(_spec())
+    output_dir = tmp_path / "out"
+
+    with pytest.raises(ChunkingProvenanceError):
+        build_index(model, path, output_dir, batch_size=1, chunking_manifest_path=manifest_path)
+
+    assert model.encode_calls == 0
+    assert not (output_dir / "index.faiss").exists()
 
 
 def test_build_index_incluye_code_revision_cuando_el_spec_lo_declara(tmp_path):

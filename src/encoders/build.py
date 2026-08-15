@@ -1,6 +1,8 @@
 """Construye un indice FAISS completo (embeddings + metadata) para un encoder.
 
-Procesa `data/interim/chunking/format_aware_v1.jsonl` en orden documental, sin
+Procesa el volcado de `ChunkDraft` que reciba en `--chunks` (por defecto
+`DEFAULT_CHUNKS_PATH`; el artefacto productivo vigente es
+`data/interim/chunking/format_aware_v2.jsonl`, ADR-008) en orden documental, sin
 reordenar, deduplicar ni filtrar. La invariante critica es `FAISS id i ==
 metadata.jsonl linea i`: embeddings y metadata se escriben en el mismo lote y
 el mismo bucle, nunca en pasadas separadas.
@@ -9,8 +11,10 @@ Exige GPU real (`hardware.require_cuda`) y una politica de precision y un
 batch_size ya decididos por `src.encoders.benchmark` (no los redecide).
 
 uv run --extra gpu python -m src.encoders.build \
-    --model bge-m3 --batch-size 32 --dtype float16 \
-    --output-dir data/interim/faiss_experimental/encoder_bge_m3
+    --model bge-m3 --batch-size 8 --dtype float16 \
+    --chunks data/interim/chunking/format_aware_v2.jsonl \
+    --chunking-manifest data/interim/chunking/format_aware_v2.manifest.json \
+    --output-dir data/interim/faiss_format_aware_v2/encoder_bge_m3
 """
 
 from __future__ import annotations
@@ -43,6 +47,52 @@ SMOKE_QUERY_LIMIT = 5
 SMOKE_TOP_K = 5
 INTEGRITY_SAMPLE_SIZE = 200
 NORM_TOLERANCE = 0.02  # FP16 redondea la norma L2 un poco por debajo de 1.0 exacto
+
+
+class ChunkingProvenanceError(RuntimeError):
+    """El manifest de chunking pedido no existe, esta incompleto o no describe `--chunks`."""
+
+
+def _chunking_provenance(chunking_manifest_path: Path, chunks_path: Path) -> dict[str, Any]:
+    """Valida que `chunking_manifest_path` describe EXACTAMENTE el `chunks_path` que se indexo.
+
+    Pedir el manifest es afirmar "este indice viene del artefacto canonico": si el archivo no
+    existe, le falta un campo, o su `artifact_sha256` no es el del JSONL que se acaba de
+    recorrer, el `build_report.json` resultante afirmaria una procedencia falsa. Se falla en vez
+    de degradar a warning -- un indice mal atribuido es peor que un build que no termina.
+
+    Raises:
+        ChunkingProvenanceError: manifest ausente, ilegible, sin `artifact_sha256`, sin
+            `config_fingerprint`, o con un `artifact_sha256` distinto al de `chunks_path`.
+    """
+    if not chunking_manifest_path.is_file():
+        raise ChunkingProvenanceError(
+            f"se pidio --chunking-manifest pero el archivo no existe | {chunking_manifest_path}"
+        )
+    try:
+        manifest = json.loads(chunking_manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ChunkingProvenanceError(
+            f"manifest de chunking ilegible | {chunking_manifest_path} | {error}"
+        ) from error
+
+    for field in ("artifact_sha256", "config_fingerprint"):
+        if not manifest.get(field):
+            raise ChunkingProvenanceError(
+                f"manifest de chunking sin {field!r} | {chunking_manifest_path}"
+            )
+
+    actual_sha256 = sha256_file(chunks_path)
+    if manifest["artifact_sha256"] != actual_sha256:
+        raise ChunkingProvenanceError(
+            "el manifest no describe el artefacto indexado | "
+            f"manifest.artifact_sha256={manifest['artifact_sha256']} "
+            f"sha256({chunks_path})={actual_sha256}"
+        )
+    return {
+        "chunking_manifest_path": str(chunking_manifest_path),
+        "chunking_config_fingerprint": manifest["config_fingerprint"],
+    }
 
 
 def iter_chunk_drafts(path: Path) -> Any:
@@ -240,12 +290,26 @@ def build_index(
 
     `chunking_artifact_path`/`chunking_artifact_sha256` en el reporte identifican SIEMPRE el
     `chunks_path` realmente consumido (se hashea el archivo, no se confia en el nombre).
-    `chunking_manifest_path` es opcional: si se pasa y existe, se copia ademas su
-    `config_fingerprint` -- sin el, no hay forma de saber CON que `ChunkingConfig` se generaron
-    esos chunks a partir solo del JSONL. Un manifest ausente no es un error: el indice sigue
-    siendo trazable por hash del artefacto, solo sin la huella de config.
+
+    `chunking_manifest_path` es opcional, pero NO best-effort: omitirlo deja el reporte sin
+    `config_fingerprint` (el indice sigue siendo trazable por hash del artefacto), mientras que
+    pasarlo obliga a que el manifest exista y describa exactamente ese `chunks_path`. Ver
+    `_chunking_provenance`: cualquier incumplimiento es `ChunkingProvenanceError`, nunca un
+    campo ausente en silencio.
+
+    Raises:
+        ChunkingProvenanceError: se pidio un manifest que no existe, esta incompleto o
+            corresponde a otro artefacto de chunking.
     """
     spec = model.spec
+    # Antes de embeber nada: un manifest que no cuadra invalida la corrida entera, y descubrirlo
+    # despues de 30 minutos de GPU no aporta informacion que no se tuviera ya al empezar.
+    provenance = (
+        _chunking_provenance(chunking_manifest_path, chunks_path)
+        if chunking_manifest_path is not None
+        else {}
+    )
+
     output_dir.mkdir(parents=True, exist_ok=True)
     index_path = output_dir / "index.faiss"
     metadata_path = output_dir / "metadata.jsonl"
@@ -297,10 +361,7 @@ def build_index(
         "integrity": asdict(integrity),
         "smoke_search": smoke,
     }
-    if chunking_manifest_path is not None and chunking_manifest_path.is_file():
-        chunking_manifest = json.loads(chunking_manifest_path.read_text(encoding="utf-8"))
-        report["chunking_manifest_path"] = str(chunking_manifest_path)
-        report["chunking_config_fingerprint"] = chunking_manifest.get("config_fingerprint")
+    report.update(provenance)
     if spec.code_revision is not None:
         report["code_revision"] = spec.code_revision
     return report
