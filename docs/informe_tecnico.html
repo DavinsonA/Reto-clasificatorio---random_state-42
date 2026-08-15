@@ -1,0 +1,199 @@
+<h1>Base de conocimiento vectorial para recuperación multilingüe</h1>
+<p class="sub">CODEFEST Ad Astra 2026 — Etapa 1 · Equipo <b>random_state = 42</b><br/>
+Davinson Arteaga · Juan Villegas · Daniela Castaño · Gian Mendoza</p>
+
+<h2>1. Objetivo y resumen ejecutivo</h2>
+<p>Se construyó un sistema de <b>recuperación densa</b> sobre el corpus multiformato y multilingüe
+de ADL (1.826 documentos, ES/EN/PT, tres fenómenos). Dadas 50 consultas en lenguaje natural, el
+sistema devuelve por cada una <b>3 documentos</b> y <b>10 fragmentos</b> de a lo sumo 250 palabras.
+No interviene ningún modelo generativo en ninguna etapa.</p>
+<p>La arquitectura final es deliberadamente simple, porque es la que la evidencia sostuvo:</p>
+<p class="flow">consulta → BGE-M3 → FAISS IndexFlatIP (top-100) → materialización M4 →
+normalización ≤250 palabras → 10 fragmentos → max-pooling documental → 3 documentos</p>
+<p>Se evaluaron y <b>descartaron</b> un segundo encoder (GTE-multilingual), la fusión RRF y un
+reranker cross-encoder: ninguno mejoró las métricas primarias sobre nuestro conjunto de
+desarrollo. El sistema entregado usa un solo índice, lo que reduce almacenamiento, tiempo de
+consulta y superficie de fallo en la máquina del evaluador.</p>
+
+<h2>2. Corpus y preprocesamiento multiformato</h2>
+<p>El inventario reconciliado contra el índice de ADL arrojó <b>1.826 documentos</b>. La
+distribución real por formato resultó muy distinta de la sugerida por la especificación (que
+mencionaba PDF/HTML/MD): no hay ningún HTML, y JSON es el formato más frecuente por documento.</p>
+<table>
+<tr><th>Formato</th><th>json</th><th>pdf</th><th>pbf</th><th>csv</th><th>jpg</th><th>xlsx</th><th>avif</th><th>txt</th></tr>
+<tr><td>Documentos</td><td>954</td><td>759</td><td>73</td><td>26</td><td>8</td><td>4</td><td>1</td><td>1</td></tr>
+<tr><td>Chunks</td><td>6.778</td><td>141.200</td><td>5.191</td><td>171.499</td><td>15</td><td>2.176</td><td>1</td><td>6</td></tr>
+</table>
+<p>La extracción es <b>format-aware</b>: un extractor por familia de formato, cada uno produciendo
+el mismo contrato intermedio (<span class="c">RawDoc</span>: identificador, ruta de origen,
+formato, fenómeno y bloques de texto). Los PDF se procesan con extracción de texto y OCR de
+respaldo; las tablas (CSV/XLSX) emiten cada fila como una secuencia <span class="c">columna:
+valor</span>, de modo que cada valor conserva el nombre de su columna como contexto; los PBF
+emiten una unidad por <i>feature</i> geográfica. Los fallos de archivos individuales se registran
+y se saltan, nunca tumban el pipeline. La conservación es verificable: el manifiesto del chunking
+declara <b>0 palabras perdidas</b> entre la extracción y el artefacto indexado.</p>
+
+<h2>3. Estrategia de chunking</h2>
+<p>La política final, <b>format_aware_v2</b>, empaqueta unidades atómicas consecutivas del mismo
+documento hasta un objetivo de tamaño, sin partir jamás una unidad. La unidad atómica depende del
+formato: una <b>oración</b> en texto narrativo (segmentada con <span class="c">pysbd</span>, nunca
+con <span class="c">split(".")</span>), una <b>fila</b> en CSV/XLSX, una <b>feature</b> en PBF.</p>
+<table>
+<tr><th>Parámetro</th><th>Valor</th><th>Parámetro</th><th>Valor</th></tr>
+<tr><td>target_words</td><td>120</td><td>overlap_units</td><td>1</td></tr>
+<tr><td>soft_min_words</td><td>72</td><td>cross_block_packing</td><td>true</td></tr>
+<tr><td>max_words</td><td>250</td><td>chunks resultantes</td><td>326.866</td></tr>
+</table>
+<p>El solapamiento se mide <b>en unidades</b>, no en palabras ni caracteres: es la única variante
+compatible con la regla de completitud lingüística. Se repite la última unidad del chunk anterior
+al inicio del siguiente, lo que eleva la redundancia textual a 1,26× y evita que una idea quede
+partida entre dos chunks sin contexto.</p>
+<p><b>Unidades atómicas sobredimensionadas.</b> 1.547 chunks (0,47&nbsp;%) superan las 250 palabras
+porque contienen una unidad indivisible que ya nace por encima del techo — típicamente tablas
+volcadas como texto corrido o PDF cuya extracción no produce fronteras de oración fiables.
+Truncarlas violaría la completitud lingüística, así que el chunker las emite enteras y es la capa
+de <i>salida</i> la que garantiza el límite de 250 palabras (§6). No es cierto, por tanto, que
+todos los chunks indexados quepan en 250 palabras; sí lo es que todos los fragmentos entregados
+lo hacen.</p>
+<p>Trazabilidad: <span class="c">config_fingerprint = f2c665528a008aa9</span>,
+<span class="c">SHA256 = cc91d779…c3b87e4ea1c</span>. El preflight del runtime comprueba que el
+índice se construyó exactamente sobre ese artefacto.</p>
+
+<h2>4. Selección del encoder</h2>
+<p>Criterios, en orden de peso: multilingüe nativo ES/EN/PT (la recuperación cross-lingual es el
+caso central, no un extra), desempeño en recuperación densa, licencia permisiva, longitud de
+contexto y coste de inferencia. Se descartaron por licencia o por ser solo-inglés varios
+candidatos; se llevaron a medición dos finalistas, ambos Apache-2.0 y de familia encoder (BERT),
+nunca decoders.</p>
+<table>
+<tr><th>Métrica</th><th>BGE-M3</th><th>GTE-multilingual</th><th>RRF (BGE+GTE)</th></tr>
+<tr><td>ProxyNDCG@10</td><td class="w">0,1294</td><td>0,0764</td><td>0,0995</td></tr>
+<tr><td>F1@3</td><td class="w">0,1958</td><td>0,0500</td><td>0,1125</td></tr>
+<tr><td>Precision@3</td><td class="w">0,1667</td><td>0,0417</td><td>0,0833</td></tr>
+<tr><td>Recall@3</td><td class="w">0,2708</td><td>0,0625</td><td>0,1875</td></tr>
+<tr><td>Hit@3</td><td class="w">0,5000</td><td>0,1250</td><td>0,2500</td></tr>
+<tr><td>MRR</td><td class="w">0,3057</td><td>0,1333</td><td>0,1800</td></tr>
+<tr><td>Evidence Recall@100</td><td class="w">0,4000</td><td>0,3333</td><td>0,4000</td></tr>
+</table>
+<p><b>Decisión: un solo encoder, BGE-M3.</b> GTE quedó por debajo en todas las métricas primarias.
+RRF no mejoró a BGE en ninguna de las dos: <span class="c">ΔProxyNDCG@10 = −0,0299</span> y
+<span class="c">ΔF1@3 = −0,0833</span>. A profundidad de operación (K=100) GTE no aportó ninguna
+unidad de evidencia exclusiva, aunque sí aportó una a profundidades menores — es decir, GTE
+encuentra antes cierta evidencia que BGE también acaba encontrando. La regla automática, en su
+lectura más conservadora, quedó <i>inconclusa</i> por esa evidencia exclusiva transitoria; el
+equipo resolvió mantener un único índice, porque el segundo no compra ninguna mejora medible y sí
+duplica almacenamiento y tiempo.</p>
+<p>Configuración final: <span class="c">BAAI/bge-m3</span>, revisión
+<span class="c">5617a9f61b028005a4858fdac845db406aefb181</span>, 1.024 dimensiones, vectores
+L2-normalizados, contexto 8.192 tokens, sin prefijo de consulta, sin
+<span class="c">trust_remote_code</span>. Fijar el commit exacto (y no <span class="c">main</span>)
+es lo que impide que dos ejecuciones en fechas distintas usen pesos diferentes.</p>
+
+<h2>5. Índice FAISS y metadata</h2>
+<p>Se usa <b>IndexFlatIP</b> sobre vectores L2-normalizados: el producto interno es entonces el
+coseno <i>exacto</i>. Para el volumen del reto (326.866 vectores) la búsqueda exhaustiva es
+holgadamente viable y evita tener que justificar y medir la pérdida de exactitud de un índice
+aproximado (IVF, HNSW).</p>
+<table>
+<tr><th>Propiedad</th><th>Valor</th><th>Propiedad</th><th>Valor</th></tr>
+<tr><td>Tipo</td><td>IndexFlatIP</td><td>Vectores (ntotal)</td><td>326.866</td></tr>
+<tr><td>Dimensión</td><td>1.024</td><td>Filas de metadata</td><td>326.866</td></tr>
+<tr><td>Documentos</td><td>1.826</td><td>chunk_id únicos</td><td>326.866</td></tr>
+</table>
+<p>La invariante crítica es que <b>la fila <i>i</i> de <span class="c">metadata.jsonl</span> es el
+identificador interno <i>i</i> de FAISS</b>: la metadata se escribe en el mismo orden y en el mismo
+paso en que se hace <span class="c">index.add()</span>, y nunca se reordena ni deduplica después.
+El runtime la verifica al cargar y aborta si no se cumple. Cada fila conserva los ocho campos
+obligatorios: <span class="c">doc_id, chunk_id, fuente, formato, fenomeno, posicion, num_tokens,
+texto</span>.</p>
+<p>Se conservan <span class="c">doc_id</span> y <span class="c">fuente</span> porque cumplen
+funciones distintas: <span class="c">doc_id</span> es el identificador con el que se evalúa a nivel
+documental, y <span class="c">fuente</span> es la ruta relativa exacta del archivo original de ADL,
+útil para trazabilidad y auditoría. La salida reporta <span class="c">doc_id</span>.</p>
+
+<h2>6. Recuperación y ranking final</h2>
+<p>Para cada consulta: se codifica con el <b>mismo</b> encoder y la misma normalización que
+construyeron el índice, se recuperan los <b>100</b> candidatos más similares, y sobre ese conjunto
+—sin volver a buscar nunca— se construye la respuesta.</p>
+<p><b>Materialización M4 (<span class="c">best_bge_similarity_adjacent_if_fits</span>).</b> La
+unidad indexada y la entregada no tienen por qué coincidir: un chunk de 60 palabras entregado tal
+cual desperdicia ~190 palabras de cobertura. Para cada candidato se consideran sus vecinos
+inmediatos <i>anterior</i> y <i>siguiente</i> del mismo documento; entre los que producen una
+combinación de ≤250 palabras se elige el de mayor similitud BGE con la consulta, calculada
+reconstruyendo el vector del vecino desde el propio índice (el vecino no necesita estar en el
+top-100). Empate exacto → el anterior. La concatenación aplica un <b>merge por solapamiento
+exacto</b>: si el sufijo de unidades del izquierdo es literalmente idéntico al prefijo del derecho,
+se elimina la repetición — igualdad literal, nunca similitud aproximada. El presupuesto de 250
+palabras se evalúa sobre el texto ya deduplicado. El <span class="c">chunk_id</span> reportado
+sigue siendo el del candidato recuperado.</p>
+<p>Sobre las 50 consultas oficiales, M4 eligió un vecino en el 92,9&nbsp;% de los 5.000 candidatos
+procesados: <b>2.353</b> veces el siguiente, <b>2.293</b> el anterior y <b>354</b> veces ninguno.</p>
+<p><b>Normalización de salida.</b> Si el texto materializado supera las 250 palabras —lo que solo
+puede ocurrir con un chunk atómico sobredimensionado— se divide en subfragmentos respetando
+fronteras de oración reales. Si la unidad es indivisible y aun así no cabe, el candidato
+<b>se omite</b> (nunca se trunca, resume ni parafrasea) y se continúa con los siguientes
+candidatos <i>del mismo top-100</i>: jamás se recupera un candidato 101 para rellenar.</p>
+<p><b>Agregación documental.</b> Los 3 documentos salen del pool legal <i>completo</i> (los 100
+candidatos), no solo de los 10 fragmentos mostrados, por max-pooling: la puntuación de un documento
+es la del mejor candidato entregable que lo respalda; empates por <span class="c">doc_id</span>
+ascendente. Un candidato omitido no puede sostener un documento, de modo que ningún documento entra
+al top-3 gracias a contenido que no podría entregarse.</p>
+<p><b>Sin modelos generativos.</b> Ningún decoder ni LLM interviene en la indexación, la
+transformación de consultas, la recuperación, el reranking, la selección de fragmentos ni la
+materialización del texto. Todo el <span class="c">text</span> entregado es una subsecuencia
+literal de unidades presentes en el índice. El uso de asistentes de código durante el desarrollo no
+forma parte del runtime.</p>
+
+<h2>7. Validación experimental</h2>
+<p>Las decisiones se tomaron con un protocolo de ablación: una variable por experimento, el mismo
+conjunto de desarrollo, y registro de configuración, métrica y delta antes de aceptar un cambio.</p>
+<p><b>Alcance y honestidad del conjunto de desarrollo.</b> Las métricas de la §4 provienen de un
+conjunto interno de <b>9 consultas (8 evaluables) y 15 unidades de evidencia</b> anotadas por el
+equipo, evaluadas con un proxy de NDCG basado en cobertura textual 5-grama (umbral 0,95). Es un
+conjunto pequeño y sesgado hacia PDF: sirve para separar alternativas con diferencias grandes —como
+BGE frente a GTE, donde la brecha es de más del doble en las métricas primarias— pero <b>no
+autoriza a declarar significancia estadística</b> ni a afinar diferencias pequeñas. Lo declaramos
+explícitamente en vez de presentar los números como definitivos.</p>
+<p><b>Chunking.</b> Se barrieron granularidad y solapamiento. Bajar el objetivo de 200 a 120
+palabras subió el techo de representación de la evidencia medido sobre el conjunto de desarrollo, y
+activar un solapamiento de una unidad resultó auditable y sin pérdida de contenido; ambas se
+promovieron a <span class="c">format_aware_v2</span>.</p>
+<p><b>Materialización.</b> Se compararon cinco políticas (desde devolver el chunk crudo hasta usar
+la similitud del vecino) contra un oráculo que elegía el vecino mirando el texto de referencia. M4
+fue la política sin acceso a las etiquetas que más se acercó a ese techo, y es la que se entrega.</p>
+<p><b>Reranker.</b> Se evaluó un cross-encoder (permitido: no es un decoder) reordenando el pool
+recuperado. No produjo una mejora metodológicamente defendible sobre el conjunto disponible, así
+que <b>se descartó</b> y no forma parte del pipeline final. Tampoco se implementó el bonus de grafo
+de conocimiento: la prioridad fue una entrega válida y reproducible.</p>
+<p><b>Frontera con las etiquetas.</b> El runtime de entrega es <i>gold-free por construcción</i>:
+no importa —ni siquiera de forma indirecta— ningún módulo de evaluación, devset o métrica. Es una
+frontera física verificada por pruebas automáticas que importan el pipeline en un proceso limpio y
+comprueban qué módulos quedaron cargados.</p>
+
+<h2>8. Reproducibilidad, configuración final y limitaciones</h2>
+<p>La entrega se ejecuta con <span class="c">python generador.py</span> desde su propia carpeta, sin
+argumentos, variables de entorno ni edición de código. Requiere <b>Python 3.9.5 o superior</b> y
+<b>CPU</b>; no regenera embeddings del corpus: carga el índice, codifica las 50 consultas y busca.
+Verificado en un entorno limpio de CPython 3.9.25 instalando únicamente
+<span class="c">requirements.txt</span>.</p>
+<table>
+<tr><th>Elemento</th><th>Valor</th></tr>
+<tr><td>Encoder</td><td>BAAI/bge-m3 @ 5617a9f61b028005a4858fdac845db406aefb181</td></tr>
+<tr><td>Índice</td><td>IndexFlatIP · 1.024 dim · 326.866 vectores</td></tr>
+<tr><td>SHA256 index.faiss</td><td>c5741cd0344cb644ea06b04f8ac14f5d4a8c7965cf6c4a067e0a21ccc8127a53</td></tr>
+<tr><td>SHA256 metadata.jsonl</td><td>b20f70452fabf3ea7562c47a7909c77f07c6fdb5ff45d247e45c7b7d657c91d0</td></tr>
+<tr><td>candidate_k</td><td>100</td></tr>
+<tr><td>Salida</td><td>3 documentos + 10 fragmentos ≤250 palabras</td></tr>
+</table>
+<p>La ejecución es <b>determinista</b>: mismas consultas, mismo índice y misma revisión del encoder
+producen un <span class="c">resultados.jsonl</span> byte a byte idéntico, comprobado repitiendo la
+generación y comparando SHA256. No se usa aleatoriedad en ninguna etapa. Sobre las 50 consultas
+oficiales, los 500 fragmentos entregados tienen entre 103 y <b>249</b> palabras (mediana 184).</p>
+<p><b>Limitaciones.</b> (i) El paquete no incluye los pesos del encoder, así que la primera
+ejecución descarga BGE-M3 desde HuggingFace fijando la revisión exacta; el runtime resuelve primero
+un checkpoint local si se le proporciona, de modo que la ejecución puede hacerse totalmente
+offline. (ii) 13 candidatos, repartidos en 10 de las 50 consultas, resultaron unidades atómicas
+indivisibles de más de 250 palabras y se omitieron; el pool legal nunca bajó de 98 candidatos, así
+que las 50 consultas entregan 10 fragmentos y 3 documentos completos. (iii) No se entrega el bonus
+de grafo de conocimiento. (iv) Las métricas internas provienen de un conjunto de desarrollo
+pequeño, como se detalla en la §7.</p>

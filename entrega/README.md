@@ -10,12 +10,13 @@ Sistema de **recuperación densa** sobre el corpus multilingüe de ADL (1.826 do
 
 | Ruta | Descripción |
 | --- | --- |
+| `resultados.jsonl` | salida: 50 líneas, una por consulta |
 | `generador.py` | punto de entrada único: reproduce `resultados.jsonl` desde la base vectorial |
-| `codefest_runtime/` | runtime de recuperación (autocontenido, sin dependencias del repo) |
+| `informe_tecnico.pdf` | decisiones de diseño y validación experimental |
 | `base_vectorial/encoder_bge_m3/` | `index.faiss`, `metadata.jsonl` y `manifest.json` |
+| `codefest_runtime/` | runtime de recuperación (autocontenido, sin dependencias del repo) |
 | `requirements.txt` | dependencias de ejecución, fijadas con `==` |
 | `consultas.jsonl` | las 50 consultas de entrada (lo aporta el comité) |
-| `resultados.jsonl` | salida generada |
 
 ## Requisitos
 
@@ -116,16 +117,18 @@ continúa con los siguientes candidatos del mismo top-100.
 
 ## Rendimiento medido
 
-En un portátil con CPU, Python 3.9.25, sobre el índice completo (326.866 vectores):
+Medido en un portátil con CPU, entorno limpio de Python 3.9.25, sobre el índice completo
+(326.866 vectores) y **las 50 consultas reales**:
 
 | Etapa | Tiempo |
 | --- | --- |
 | Carga de `index.faiss` + `metadata.jsonl` | ~3 s |
-| Carga de BGE-M3 (ya en caché) | ~12 s |
-| Recuperación de las 50 consultas | ~3 s (0,06 s/consulta) |
-| **Total** | **~18 s** |
+| Carga de BGE-M3 (ya en caché de HuggingFace) | ~14 s |
+| Recuperación de las 50 consultas | ~11 s (0,23 s/consulta) |
+| **Total** | **~29 s** |
 
-La primera ejecución añade la descarga del encoder.
+La primera ejecución añade la descarga del encoder (~2,2 GB). En máquinas más rápidas hemos
+medido el total en ~17 s.
 
 ## Errores comunes
 
