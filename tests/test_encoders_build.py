@@ -8,6 +8,7 @@ asi que se pueden comparar contra lo que el indice reconstruye.
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import faiss
@@ -144,6 +145,93 @@ def test_build_index_sin_truncados_cuando_todo_cabe(tmp_path):
 
     assert report["truncated_count"] == 0
     assert report["truncated_pct"] == 0.0
+
+
+# --- provenance del chunking source en build_report ------------------------------
+
+
+def test_build_index_registra_ruta_y_sha256_del_chunking_source(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a"), words(10, "b")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    model = FakeBuildModel(_spec())
+
+    report = build_index(model, path, tmp_path / "out", batch_size=2)
+
+    assert report["chunking_artifact_path"] == str(path)
+    assert report["chunking_artifact_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_build_index_copia_config_fingerprint_si_hay_manifest(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    manifest_path = tmp_path / "chunks.manifest.json"
+    manifest_path.write_text(
+        json.dumps({"config_fingerprint": "deadbeef00000000"}), encoding="utf-8"
+    )
+    model = FakeBuildModel(_spec())
+
+    report = build_index(
+        model, path, tmp_path / "out", batch_size=1, chunking_manifest_path=manifest_path
+    )
+
+    assert report["chunking_config_fingerprint"] == "deadbeef00000000"
+    assert report["chunking_manifest_path"] == str(manifest_path)
+
+
+def test_build_index_sin_manifest_no_inventa_config_fingerprint(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    model = FakeBuildModel(_spec())
+
+    report = build_index(model, path, tmp_path / "out", batch_size=1)
+
+    assert "chunking_config_fingerprint" not in report
+    assert "chunking_manifest_path" not in report
+
+
+def test_build_index_manifest_inexistente_se_ignora_sin_fallar(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    model = FakeBuildModel(_spec())
+
+    report = build_index(
+        model,
+        path,
+        tmp_path / "out",
+        batch_size=1,
+        chunking_manifest_path=tmp_path / "no_existe.manifest.json",
+    )
+
+    assert "chunking_config_fingerprint" not in report
+
+
+def test_build_index_incluye_code_revision_cuando_el_spec_lo_declara(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    spec = EncoderSpec(
+        name="fake-remote",
+        model_id="fake/fake-remote",
+        revision="fake-revision",
+        embedding_dimension=8,
+        max_sequence_length=100,
+        trust_remote_code=True,
+        code_revision="fake-code-revision",
+    )
+    model = FakeBuildModel(spec)
+
+    report = build_index(model, path, tmp_path / "out", batch_size=1)
+
+    assert report["code_revision"] == "fake-code-revision"
+
+
+def test_build_index_sin_code_revision_declarada_no_lo_incluye(tmp_path):
+    chunks = _make_chunk_drafts([words(10, "a")])
+    path = _write_chunk_drafts(tmp_path, chunks)
+    model = FakeBuildModel(_spec())  # sin trust_remote_code, code_revision=None
+
+    report = build_index(model, path, tmp_path / "out", batch_size=1)
+
+    assert "code_revision" not in report
 
 
 # --- verify_index ----------------------------------------------------------------

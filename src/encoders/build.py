@@ -28,6 +28,7 @@ import faiss
 import numpy as np
 
 from src.chunking import ChunkDraft, materialize_metadata
+from src.chunking.provenance import sha256_file
 
 from .audit import DEFAULT_CHUNKS_PATH
 from .core import EncoderModel
@@ -233,8 +234,17 @@ def build_index(
     chunks_path: Path,
     output_dir: Path,
     batch_size: int,
+    chunking_manifest_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Corrida completa: embeddings + FAISS + metadata + integridad + smoke retrieval."""
+    """Corrida completa: embeddings + FAISS + metadata + integridad + smoke retrieval.
+
+    `chunking_artifact_path`/`chunking_artifact_sha256` en el reporte identifican SIEMPRE el
+    `chunks_path` realmente consumido (se hashea el archivo, no se confia en el nombre).
+    `chunking_manifest_path` es opcional: si se pasa y existe, se copia ademas su
+    `config_fingerprint` -- sin el, no hay forma de saber CON que `ChunkingConfig` se generaron
+    esos chunks a partir solo del JSONL. Un manifest ausente no es un error: el indice sigue
+    siendo trazable por hash del artefacto, solo sin la huella de config.
+    """
     spec = model.spec
     output_dir.mkdir(parents=True, exist_ok=True)
     index_path = output_dir / "index.faiss"
@@ -265,7 +275,7 @@ def build_index(
     devset = _load_devset(DEVSET_PATH, SMOKE_QUERY_LIMIT)
     smoke = smoke_search(model, index, metadata_path, devset)
 
-    return {
+    report: dict[str, Any] = {
         "model": spec.name,
         "model_id": spec.model_id,
         "revision": spec.revision,
@@ -282,9 +292,18 @@ def build_index(
         "index_size_bytes": index_path.stat().st_size,
         "metadata_path": str(metadata_path),
         "metadata_size_bytes": metadata_path.stat().st_size,
+        "chunking_artifact_path": str(chunks_path),
+        "chunking_artifact_sha256": sha256_file(chunks_path),
         "integrity": asdict(integrity),
         "smoke_search": smoke,
     }
+    if chunking_manifest_path is not None and chunking_manifest_path.is_file():
+        chunking_manifest = json.loads(chunking_manifest_path.read_text(encoding="utf-8"))
+        report["chunking_manifest_path"] = str(chunking_manifest_path)
+        report["chunking_config_fingerprint"] = chunking_manifest.get("config_fingerprint")
+    if spec.code_revision is not None:
+        report["code_revision"] = spec.code_revision
+    return report
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -293,6 +312,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--dtype", choices=["float16", "float32"], required=True)
     parser.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS_PATH)
+    parser.add_argument(
+        "--chunking-manifest",
+        type=Path,
+        default=None,
+        help="manifest de procedencia del chunking (para chunking_config_fingerprint)",
+    )
     parser.add_argument("--output-dir", type=Path, default=None)
     return parser.parse_args(argv)
 
@@ -324,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir,
     )
 
-    report = build_index(model, args.chunks, output_dir, args.batch_size)
+    report = build_index(model, args.chunks, output_dir, args.batch_size, args.chunking_manifest)
     report_path = output_dir / "build_report.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
