@@ -56,8 +56,10 @@ de <i>salida</i> la que garantiza el límite de 250 palabras (§6). No es cierto
 todos los chunks indexados quepan en 250 palabras; sí lo es que todos los fragmentos entregados
 lo hacen.</p>
 <p>Trazabilidad: <span class="c">config_fingerprint = f2c665528a008aa9</span>,
-<span class="c">SHA256 = cc91d779…c3b87e4ea1c</span>. El preflight del runtime comprueba que el
-índice se construyó exactamente sobre ese artefacto.</p>
+<span class="c">SHA256 = cc91d779…c3b87e4ea1c</span>. El manifest de entrega registra esta
+procedencia; el preflight de runtime verifica la coherencia estructural del índice, la metadata y
+la configuración del encoder, mientras que la identidad de los artefactos se certifica mediante
+hashes durante el empaquetado y la validación final.</p>
 
 <h2>4. Selección del encoder</h2>
 <p>Criterios, en orden de peso: multilingüe nativo ES/EN/PT (la recuperación cross-lingual es el
