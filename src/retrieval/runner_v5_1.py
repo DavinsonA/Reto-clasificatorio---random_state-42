@@ -29,7 +29,13 @@ from .aggregation import aggregate_documents_max_pool
 from .config import CANDIDATE_K, DEVSET_PATH, EVIDENCE_HIT_THRESHOLD, FIVEGRAM_N
 from .evidence import GoldEvidenceUnit, fivegram_recall, load_gold_evidence_units
 from .gold import GoldQuery, load_devset
-from .index_store import IndexStore, load_index_store, search, summarize_integrity
+from .index_store import (
+    IndexStore,
+    load_index_store,
+    search,
+    similarity_lookup,
+    summarize_integrity,
+)
 from .materialization import MAX_WORDS, NeighborResolver
 from .metrics import f1_at_k_documents, hit_at_k_documents, mrr_documents
 from .metrics_v3 import proxy_ndcg_evidence_at_10_materialized
@@ -186,26 +192,10 @@ def verify_reconstruction(
     return {"checks": checks, "ok": all(check["ok"] for check in checks), "tolerance": tolerance}
 
 
-def similarity_lookup(store: IndexStore, query_vector: np.ndarray):
-    """`chunk_id -> <query, vector>` con el MISMO producto interno del indice.
-
-    Cachea por `chunk_id`: un mismo vecino se consulta desde varios anchors de la misma consulta.
-    """
-    cache: dict[str, float | None] = {}
-
-    def lookup(chunk_id: str) -> float | None:
-        if chunk_id in cache:
-            return cache[chunk_id]
-        position = store.chunk_id_to_position.get(chunk_id)
-        score = (
-            float(np.dot(query_vector, store.index.reconstruct(position)))
-            if position is not None
-            else None
-        )
-        cache[chunk_id] = score
-        return score
-
-    return lookup
+# `similarity_lookup` vivia aqui. Se movio TAL CUAL a `index_store.py` (misma implementacion, no
+# una copia) porque es una primitiva de lectura del indice sin nada de gold y el pipeline
+# productivo la necesita sin arrastrar este runner, que si importa gold/metricas/devset. Se
+# reexporta para que los consumidores historicos (`runner_architecture`) no cambien de import.
 
 
 # --- 3. oraculo (USA GOLD -- solo techo) ---------------------------------------------------------

@@ -35,6 +35,7 @@ from .evidence import (
     UnreturnableAtomicUnitError,
     evidence_candidates,
     split_for_output,
+    split_text_for_output,
 )
 from .pack import chunk_text, chunk_words, is_oversized_unit, pack_units
 from .units import RawDocLike, Unit, UnitTelemetry, document_units
@@ -72,6 +73,7 @@ __all__ = [
     "materialize_metadata",
     "pack_units",
     "split_for_output",
+    "split_text_for_output",
 ]
 
 

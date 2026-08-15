@@ -23,12 +23,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from src.chunking import count_words
 
-from .evidence import GoldEvidenceUnit, fivegram_recall
 from .index_store import ChunkRow, IndexStore
 from .ranking import RankedFragment
+
+if TYPE_CHECKING:  # solo para los type hints del oraculo; ver el aviso al final del modulo
+    from .evidence import GoldEvidenceUnit
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +324,13 @@ def materialize(
 # =================================================================================================
 # ORACLE -- SOLO DIAGNOSTICO. USA GOLD. NUNCA PRODUCTIVO.
 #
+# El import de `evidence` (y con el, de `gold`) es LOCAL a esta funcion a proposito. Este modulo
+# exporta las primitivas gold-free que consume el runtime productivo (`MAX_WORDS`,
+# `NeighborResolver`, `ReturnedFragment`); un import de gold a nivel de modulo obligaria a todo el
+# pipeline de entrega a arrastrar el devset y las etiquetas de relevancia solo para poder resolver
+# vecinos. La frontera del gold es fisica (prompt V5.1 S24) y esto la hace cumplirse tambien en la
+# direccion de las dependencias, no solo en la del codigo.
+#
 # `oracle_materialize_best_adjacent` decide la variante de texto (raw / previous+current /
 # current+next) comparando cada una contra `evidence.text` (el propio gold). Por eso:
 #   - NO puede llamarse desde `generador.py` ni desde ningun pipeline de entrega;
@@ -343,6 +353,8 @@ def oracle_materialize_best_adjacent(
     Empates de `fivegram_recall` se resuelven por el orden de evaluacion (raw, previous, next):
     determinista, no aleatorio. USA GOLD deliberadamente -- ver el aviso del bloque.
     """
+    from .evidence import fivegram_recall
+
     current = resolver.location(fragment.chunk_id)
     neighbors = resolver.neighbors(fragment.chunk_id)
 

@@ -71,8 +71,58 @@ def split_for_output(
     if chunk.num_words <= config.output_max_words:
         return [chunk.texto]
 
-    pieces = _output_units(chunk, config, ruleset or config.fallback_ruleset)
-    units = [Unit(piece, count_words(piece), chunk.posicion, DOCUMENT_GROUP) for piece in pieces]
+    return split_text_for_output(
+        chunk.texto,
+        chunk.formato,
+        config,
+        ruleset,
+        posicion=chunk.posicion,
+        doc_id=chunk.doc_id,
+        chunk_id=chunk.chunk_id,
+    )
+
+
+def split_text_for_output(
+    texto: str,
+    formato: str,
+    config: ChunkingConfig = DEFAULT_CONFIG,
+    ruleset: str | None = None,
+    posicion: int = 0,
+    doc_id: str = "",
+    chunk_id: str = "",
+) -> list[str]:
+    """Igual que `split_for_output`, pero sobre `(texto, formato)` en vez de un `ChunkDraft`.
+
+    Extraida para que la capa de salida productiva (`src/retrieval/output_normalization.py`)
+    reutilice ESTA infraestructura linguistica -- pysbd via `split_sentences`, el packer real,
+    la politica tabular -- sin fabricar un `ChunkDraft` sintetico con campos que la metadata del
+    indice no guarda (`block_start`, `unit_count`, `oversized_atomic`).
+
+    Es una extraccion behavior-preserving: `split_for_output` delega aqui y no cambia ni su
+    guarda de entrada (`chunk.num_words`) ni el resultado para ningun chunk.
+
+    Args:
+        texto: contenido del chunk, con sus unidades unidas por `UNIT_SEPARATOR`.
+        formato: extension real en minusculas; decide la politica tabular vs. narrativa.
+        config: presupuestos; solo se usan los `output_*`.
+        ruleset: idioma para pysbd; si falta se usa `config.fallback_ruleset`.
+        posicion: `posicion` del chunk, solo para construir las `Unit` del packer.
+        doc_id: identificador del documento, solo para el mensaje de error.
+        chunk_id: identificador del chunk, solo para el mensaje de error.
+
+    Returns:
+        Los sub-fragmentos en orden documental, cada uno <= `output_max_words`.
+
+    Raises:
+        UnreturnableAtomicUnitError: hay una unidad indivisible que no cabe.
+    """
+    if count_words(texto) <= config.output_max_words:
+        return [texto]
+
+    pieces = _output_units(
+        texto, formato, config, ruleset or config.fallback_ruleset, doc_id, chunk_id
+    )
+    units = [Unit(piece, count_words(piece), posicion, DOCUMENT_GROUP) for piece in pieces]
     return [chunk_text(group) for group in pack_units(units, _output_config(config))]
 
 
@@ -137,24 +187,30 @@ def evidence_candidates(
     return candidates
 
 
-def _output_units(chunk: ChunkDraft, config: ChunkingConfig, ruleset: str) -> list[str]:
+def _output_units(
+    texto: str,
+    formato: str,
+    config: ChunkingConfig,
+    ruleset: str,
+    doc_id: str,
+    chunk_id: str,
+) -> list[str]:
     """Unidades entregables del chunk: sus unidades originales, o sus oraciones."""
     pieces: list[str] = []
-    for unit in chunk.texto.split(UNIT_SEPARATOR):
+    for unit in texto.split(UNIT_SEPARATOR):
         if count_words(unit) <= config.output_max_words:
             pieces.append(unit)
             continue
-        if chunk.formato in TABULAR_FORMATS:
+        if formato in TABULAR_FORMATS:
             # Una fila o una feature no se parte por `|` ni por columnas.
             raise UnreturnableAtomicUnitError(
-                f"fila indivisible > {config.output_max_words} palabras | "
-                f"{chunk.doc_id} | {chunk.chunk_id}"
+                f"fila indivisible > {config.output_max_words} palabras | {doc_id} | {chunk_id}"
             )
         for sentence in split_sentences(unit, ruleset) or [unit]:
             if count_words(sentence) > config.output_max_words:
                 raise UnreturnableAtomicUnitError(
                     f"oracion indivisible > {config.output_max_words} palabras | "
-                    f"{chunk.doc_id} | {chunk.chunk_id}"
+                    f"{doc_id} | {chunk_id}"
                 )
             pieces.append(sentence.strip())
     return pieces

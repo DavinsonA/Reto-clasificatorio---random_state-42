@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,12 +27,23 @@ class IndexIntegrityError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ChunkRow:
-    """Vista minima de una fila de `metadata.jsonl`, indexada por el id interno de FAISS."""
+    """Vista minima de una fila de `metadata.jsonl`, indexada por el id interno de FAISS.
+
+    `formato` se conserva porque la normalizacion de salida productiva lo necesita para elegir
+    entre la politica tabular y la narrativa (`src/chunking/evidence.py::split_text_for_output`):
+    una fila de CSV no se parte por oraciones. Es metadata que YA existe en el `metadata.jsonl`
+    (Tabla 1), no un campo nuevo; sigue siendo una vista minima y NO se cargan `fuente`,
+    `fenomeno` ni `num_tokens`, que ningun consumidor de esta capa usa (326.866 filas).
+
+    Su valor por defecto existe solo para los `ChunkRow` sinteticos de los tests anteriores a
+    esta fase; un `formato` desconocido cae en la politica narrativa, nunca en la tabular.
+    """
 
     doc_id: str
     chunk_id: str
     posicion: int
     texto: str
+    formato: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +76,7 @@ def _read_metadata_rows(path: Path) -> list[ChunkRow]:
                     chunk_id=record["chunk_id"],
                     posicion=int(record["posicion"]),
                     texto=record["texto"],
+                    formato=record["formato"],
                 )
             )
     return rows
@@ -153,6 +166,37 @@ def search(store: IndexStore, query_vectors: np.ndarray, k: int) -> list[list[Se
             hits.append(SearchHit(chunk_id=row.chunk_id, doc_id=row.doc_id, score=float(score)))
         results.append(hits)
     return results
+
+
+def similarity_lookup(store: IndexStore, query_vector: np.ndarray) -> Callable[[str], float | None]:
+    """`chunk_id -> <query, vector>` con el MISMO producto interno del indice.
+
+    Es la senal vectorial que M4 (`best_bge_similarity_adjacent_if_fits`) usa para elegir vecino:
+    el vecino NO tiene que estar en el top-K, su vector se reconstruye directamente desde FAISS.
+    Devuelve `None` si el `chunk_id` no esta en el indice, nunca un 0.0 que M4 confundiria con
+    una similitud real.
+
+    Vive aqui, y no en un runner, porque es una primitiva de lectura del indice sin nada de gold:
+    tanto el benchmark historico como el pipeline productivo consumen la MISMA implementacion.
+
+    Cachea por `chunk_id` dentro de la consulta: un mismo vecino se consulta desde varios anchors.
+    El cache es local al `query_vector`, nunca global entre consultas.
+    """
+    cache: dict[str, float | None] = {}
+
+    def lookup(chunk_id: str) -> float | None:
+        if chunk_id in cache:
+            return cache[chunk_id]
+        position = store.chunk_id_to_position.get(chunk_id)
+        score = (
+            float(np.dot(query_vector, store.index.reconstruct(position)))
+            if position is not None
+            else None
+        )
+        cache[chunk_id] = score
+        return score
+
+    return lookup
 
 
 @dataclass(frozen=True, slots=True)

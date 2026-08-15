@@ -77,6 +77,7 @@ def build_variant_store(variant_id: str, chunks: Iterable[ChunkDraft]) -> IndexS
                 chunk_id=chunk.chunk_id,
                 posicion=chunk.posicion,
                 texto=chunk.texto,
+                formato=chunk.formato,
             )
         )
         doc_to_positions.setdefault(chunk.doc_id, []).append(position)
