@@ -83,20 +83,10 @@ def test_no_se_usan_apis_posteriores_a_python_39(path: Path) -> None:
 def test_el_runtime_no_declara_dependencias_fuera_de_requirements() -> None:
     """Todo import de tercero del runtime debe estar en `requirements.txt`."""
     requirements = (DELIVERY / "requirements.txt").read_text(encoding="utf-8").lower()
-    stdlib_or_local = {
-        "codefest_runtime",
-        "json",
-        "logging",
-        "argparse",
-        "sys",
-        "os",
-        "time",
-        "pathlib",
-        "typing",
-        "tempfile",
-        "hashlib",
-        "shutil",
-    }
+    # La biblioteca estandar se excluye con `sys.stdlib_module_names`, no con una lista escrita a
+    # mano: la version manual olvidaba `__future__` y `collections`, y hacia fallar el test por un
+    # import de stdlib en vez de por una dependencia sin declarar (que es lo que debe vigilar).
+    stdlib_or_local = set(sys.stdlib_module_names) | {"codefest_runtime"}
     # `nombre de import -> distribucion en requirements`
     distributions = {
         "numpy": "numpy",

@@ -1,0 +1,33 @@
+# Input de dependencias de la ENTREGA. Build tooling: esto NO viaja en `entrega/`.
+#
+# Se compila a `entrega/requirements.txt` con:
+#
+#     uv pip compile scripts/requirements-delivery.in \
+#         --universal \
+#         --python-version 3.9 \
+#         --extra-index-url https://download.pytorch.org/whl/cpu \
+#         --index-strategy unsafe-best-match \
+#         -o entrega/requirements.txt
+#
+# Por que un input propio y no `uv export` del proyecto:
+#
+# - `pyproject.toml` declara `requires-python = ">=3.11"`, asi que `uv.lock` resuelve pins
+#   (numpy 2.4, transformers 5.x) que NO instalan en el entorno de evaluacion, que la
+#   especificacion fija en "Python 3.9.5 o superior";
+# - `pysbd` y `langdetect` viven en `[dependency-groups] dev` porque nacieron con el chunker, y
+#   `uv export --no-dev` los omite por diseno -- pero el runtime de entrega los importa de verdad
+#   (`entrega/codefest_runtime/textseg.py`), asi que sin ellos la entrega no arranca;
+# - `uv export` no acepta `--python-version`; `uv pip compile` si.
+#
+# `--universal` genera los marcadores de plataforma (macOS no tiene ruedas en el indice CPU de
+# PyTorch), de modo que el archivo final sigue siendo GENERADO y no editado a mano.
+#
+# Solo van aqui las dependencias DIRECTAS: las que importa el runtime. `torch` y `transformers`
+# entran como transitivas de `sentence-transformers`. Antes de anadir una linea, comprobar que
+# `entrega/generador.py` o `entrega/codefest_runtime/*.py` la importan de verdad.
+
+faiss-cpu
+numpy
+sentence-transformers
+pysbd
+langdetect
