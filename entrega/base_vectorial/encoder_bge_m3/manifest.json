@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "encoder_name": "bge-m3",
+  "model_id": "BAAI/bge-m3",
+  "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+  "embedding_dimension": 1024,
+  "normalize_embeddings": true,
+  "max_sequence_length": 8192,
+  "index_type": "IndexFlatIP",
+  "candidate_k": 100,
+  "materialization_policy": "best_bge_similarity_adjacent_if_fits",
+  "metadata_rows": 326866,
+  "document_count": 1826,
+  "index_sha256": "c5741cd0344cb644ea06b04f8ac14f5d4a8c7965cf6c4a067e0a21ccc8127a53",
+  "metadata_sha256": "b20f70452fabf3ea7562c47a7909c77f07c6fdb5ff45d247e45c7b7d657c91d0",
+  "source_chunking_name": "format_aware_v2",
+  "source_chunking_fingerprint": "f2c665528a008aa9",
+  "source_chunking_sha256": "cc91d77976975bbc92a93f379a35f215033e1e0377bf89a5f2954c3b87e4ea1c"
+}

@@ -13,7 +13,17 @@ models/
 data/*
 !data/.gitkeep
 
-# entrega/base_vectorial/**/index.faiss
+# La base vectorial NO se commitea (CLAUDE.md S7): el indice pesa ~1,25 GiB y la metadata
+# ~344 MiB. La entrega se sube a la carpeta compartida en la nube, no a git. El `manifest.json`
+# si se versiona: es pequeno y documenta la procedencia del paquete.
+entrega/base_vectorial/**/index.faiss
+entrega/base_vectorial/**/metadata.jsonl
+
+# Checkpoint del encoder, si se empaqueta para ejecucion offline (~2,2 GiB).
+entrega/modelos/
+
+# Salida generada por `generador.py`. La version certificada se sube a la nube.
+entrega/resultados.jsonl
 
 Thumbs.db
 .DS_Store
