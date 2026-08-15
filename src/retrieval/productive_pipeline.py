@@ -45,7 +45,7 @@ from typing import Any
 
 import numpy as np
 
-from src.chunking import FORMAT_AWARE_V2_CONFIG, ChunkingConfig
+from src.chunking import FORMAT_AWARE_V2_CONFIG, ChunkingConfig, config_fingerprint
 from src.chunking.provenance import sha256_file
 from src.encoders.hardware import probe_hardware
 from src.encoders.registry import get_model, get_spec
@@ -92,6 +92,11 @@ DEFAULT_OUTPUT_DIR = Path("data/interim/productive_pipeline_phase1")
 
 M4_POLICY = BEST_BGE_SIMILARITY_ADJACENT_IF_FITS
 PRODUCTIVE_SYSTEM = BGE_ENCODER_NAME
+
+# `IndexFlatIP` sobre vectores L2-normalizados = coseno EXACTO (CLAUDE.md S4.3). Cualquier indice
+# aproximado (IVF, HNSW) daria otro ranking y exigiria justificarlo midiendo; el preflight lo
+# rechaza en vez de descubrirlo en los resultados.
+EXPECTED_INDEX_TYPE = "IndexFlatIP"
 
 # Cardinalidad exacta del esquema de salida (CLAUDE.md S2.3). No son valores por defecto
 # ajustables: son el contrato. Se parametrizan en las primitivas internas solo para poder
@@ -144,11 +149,23 @@ def build_preflight(
 ) -> dict[str, Any]:
     """Verifica la cadena de procedencia completa ANTES de recuperar nada.
 
-    Misma cadena que exige el benchmark arquitectonico: SHA del chunking contra su manifest,
-    `build_report` del indice contra ese SHA y su `config_fingerprint`, `EncoderSpec` vigente
-    contra el `build_report`, e integridad FAISS<->metadata. Se implementa aqui en vez de
-    importarse de `runner_architecture` porque ese modulo carga gold, metricas y devset a nivel de
-    modulo: importarlo metería el gold en el runtime productivo (prompt S31).
+    Dos clases de comprobacion, y las dos hacen falta:
+
+    - **consistencia entre artefactos**: SHA del chunking contra su manifest, `build_report` del
+      indice contra ese SHA y su `config_fingerprint`, `EncoderSpec` vigente contra el
+      `build_report`, e integridad FAISS<->metadata.
+    - **correspondencia con la arquitectura congelada VIGENTE EN CODIGO**: que el manifest
+      describa `FORMAT_AWARE_V2_CONFIG` y no otra config que alguna vez fue canonica, y que el
+      objeto FAISS realmente cargado sea `IndexFlatIP` con la dimension del `EncoderSpec` y los
+      documentos que el manifest declara.
+
+    Sin la segunda clase, un manifest y un `build_report` mutuamente coherentes pero producidos
+    por otra configuracion pasarian el preflight: se estaria validando que dos archivos se
+    contradicen entre si, no que describen la arquitectura que este codigo implementa. El objeto
+    FAISS cargado es una fuente de verdad independiente de lo que declare cualquier JSON.
+
+    Se implementa aqui en vez de importarse de `runner_architecture` porque ese modulo carga gold,
+    metricas y devset a nivel de modulo: importarlo meteria el gold en el runtime productivo.
 
     Raises:
         ProductivePreflightError: cualquier eslabon de la cadena no cuadra.
@@ -170,6 +187,17 @@ def build_preflight(
     if manifest["inputs_skipped"]:
         raise ProductivePreflightError(
             f"el chunking canonico salto entradas | {manifest['inputs_skipped']}"
+        )
+
+    # El manifest debe describir la config productiva VIGENTE, no solo coincidir con el
+    # build_report. Se recalcula la huella desde `FORMAT_AWARE_V2_CONFIG` con la misma primitiva
+    # que uso el chunker (`config_fingerprint`), nunca reimplementandola.
+    expected_fingerprint = config_fingerprint(FORMAT_AWARE_V2_CONFIG)
+    if manifest["config_fingerprint"] != expected_fingerprint:
+        raise ProductivePreflightError(
+            "el chunking no corresponde a FORMAT_AWARE_V2_CONFIG | "
+            f"manifest={manifest['config_fingerprint']} "
+            f"FORMAT_AWARE_V2_CONFIG={expected_fingerprint}"
         )
 
     report_path = index_dir / "build_report.json"
@@ -198,6 +226,25 @@ def build_preflight(
             f"chunks_esperados={manifest['chunk_count']}"
         )
 
+    # --- el objeto FAISS cargado, como fuente de verdad independiente de los JSON --------------
+    index_type = type(store.index).__name__
+    if index_type != EXPECTED_INDEX_TYPE:
+        raise ProductivePreflightError(
+            f"el indice FAISS no es {EXPECTED_INDEX_TYPE} | cargado={index_type} | "
+            "la arquitectura congelada exige coseno exacto sobre vectores L2-normalizados "
+            "(CLAUDE.md S4.3); un indice aproximado cambiaria el ranking sin avisar"
+        )
+    if integrity.dimension != spec.embedding_dimension:
+        raise ProductivePreflightError(
+            "la dimension real del indice no coincide con el EncoderSpec | "
+            f"index={integrity.dimension} spec[{spec.name}]={spec.embedding_dimension}"
+        )
+    if integrity.unique_documents != manifest["document_count"]:
+        raise ProductivePreflightError(
+            "el indice no cubre los documentos que declara el manifest | "
+            f"index={integrity.unique_documents} manifest={manifest['document_count']}"
+        )
+
     return {
         "git_head": git_head,
         "architecture": {
@@ -216,6 +263,8 @@ def build_preflight(
             "path": str(chunking_path),
             "sha256": actual_sha256,
             "config_fingerprint": manifest["config_fingerprint"],
+            # Verificado contra `FORMAT_AWARE_V2_CONFIG`, no solo contra el build_report.
+            "config_fingerprint_from_code": expected_fingerprint,
             "chunk_count": manifest["chunk_count"],
             "document_count": manifest["document_count"],
             "inputs_skipped": manifest["inputs_skipped"],

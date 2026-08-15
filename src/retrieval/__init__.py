@@ -16,13 +16,35 @@ cuanta evidencia adicional cubre el `text` de salida cuando se le agrega un veci
 (`materialization.py`, politicas M0-M3 + oracle diagnostico), y (b) que candidate pool
 (BGE/GTE/RRF/UNION a distintos K) haria falta antes de un reranker (`candidate_pool.py`). No
 cambia retrieval ni gold; V1 y V2 no se tocan.
+
+**Los exports de benchmark son PEREZOSOS (PEP 562).** Importarlos eager aqui hacia que cualquier
+`import src.retrieval.<lo que sea>` -- incluido el runtime productivo -- ejecutase primero este
+`__init__` y arrastrase `runner`/`runner_v2`/`runner_v3`, y con ellos `gold`, `evidence`,
+`metrics*` y `fusion` (RRF). El pipeline de entrega no puede depender del tooling de evaluacion
+ni siquiera de forma indirecta: la frontera del gold es fisica, no una convencion.
+
+La API publica NO cambia: `from src.retrieval import run_benchmark` sigue funcionando exactamente
+igual, solo que el modulo se carga en ese momento y no antes.
 """
 
 from __future__ import annotations
 
-from .runner import BenchmarkArtifacts, run_benchmark, write_artifacts
-from .runner_v2 import BenchmarkArtifactsV2, run_benchmark_v2, write_artifacts_v2
-from .runner_v3 import BenchmarkArtifactsV3, run_benchmark_v3, write_artifacts_v3
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+# `export -> modulo que lo define`. Anadir aqui un export nuevo es suficiente: no hay que tocar
+# `__getattr__`.
+_LAZY_EXPORTS: dict[str, str] = {
+    "BenchmarkArtifacts": "runner",
+    "run_benchmark": "runner",
+    "write_artifacts": "runner",
+    "BenchmarkArtifactsV2": "runner_v2",
+    "run_benchmark_v2": "runner_v2",
+    "write_artifacts_v2": "runner_v2",
+    "BenchmarkArtifactsV3": "runner_v3",
+    "run_benchmark_v3": "runner_v3",
+    "write_artifacts_v3": "runner_v3",
+}
 
 __all__ = [
     "BenchmarkArtifacts",
@@ -35,3 +57,23 @@ __all__ = [
     "write_artifacts_v2",
     "write_artifacts_v3",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Resuelve un export de benchmark cargando su runner solo cuando se pide (PEP 562)."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(f".{module_name}", __name__), name)
+    globals()[name] = value  # se cachea: la segunda vez no vuelve a pasar por aqui
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
+
+
+if TYPE_CHECKING:  # los type checkers y los IDE siguen viendo la API completa
+    from .runner import BenchmarkArtifacts, run_benchmark, write_artifacts
+    from .runner_v2 import BenchmarkArtifactsV2, run_benchmark_v2, write_artifacts_v2
+    from .runner_v3 import BenchmarkArtifactsV3, run_benchmark_v3, write_artifacts_v3
