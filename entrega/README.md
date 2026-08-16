@@ -15,6 +15,7 @@ Sistema de **recuperación densa** sobre el corpus multilingüe de ADL (1.826 do
 | `informe_tecnico.pdf` | decisiones de diseño y validación experimental |
 | `base_vectorial/encoder_bge_m3/` | `index.faiss`, `metadata.jsonl` y `manifest.json` |
 | `codefest_runtime/` | runtime de recuperación (autocontenido, sin dependencias del repo) |
+| `modelos/bge_m3/` | checkpoint de BGE-M3 empaquetado, revisión fijada: permite ejecutar sin red |
 | `requirements.txt` | dependencias de ejecución, fijadas con `==` |
 | `consultas.jsonl` | las 50 consultas de entrada (lo aporta el comité) |
 
@@ -24,7 +25,9 @@ Sistema de **recuperación densa** sobre el corpus multilingüe de ADL (1.826 do
   **Python 3.9.25**.
 - **CPU.** No se necesita GPU ni CUDA: no se regeneran los embeddings del corpus, solo se carga el
   índice ya construido, se codifican las 50 consultas y se busca.
-- ~2 GB de RAM para el índice y la metadata, y ~1,7 GB de disco para `base_vectorial/`.
+- **Sin conexión a internet**: el checkpoint del encoder viaja dentro de la carpeta.
+- ~2 GB de RAM para el índice y la metadata. En disco: ~1,7 GiB para `base_vectorial/` y
+  ~2,14 GiB para `modelos/bge_m3/`.
 
 ## Ejecución
 
@@ -67,10 +70,15 @@ El encoder se resuelve **local primero**:
 1. si existe `modelos/bge_m3/` dentro de esta carpeta, se carga desde ahí y **no hace falta red**;
 2. si no, se descarga de HuggingFace fijando esa revisión exacta.
 
-> **Esta copia de la entrega no incluye el checkpoint empaquetado**, así que **la primera
-> ejecución necesita conexión a internet** para descargar ~2,2 GB (las siguientes usan la caché de
-> HuggingFace). Si el entorno de evaluación no tiene red, copie el checkpoint en `modelos/bge_m3/`
-> y la ejecución será completamente offline.
+> **Esta copia de la entrega SÍ incluye el checkpoint empaquetado** en `modelos/bge_m3/`
+> (2,14 GiB), en la revisión exacta indicada arriba. **No se necesita conexión a internet**:
+> `generador.py` resuelve local primero y carga desde esa carpeta.
+>
+> HuggingFace queda únicamente como respaldo por si `modelos/bge_m3/` se elimina o no se copia
+> completa. Verificado ejecutando el pipeline con la red deshabilitada
+> (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`) y con las cachés de HuggingFace redirigidas a un
+> directorio vacío: el `resultados.jsonl` obtenido es byte a byte idéntico al de la ejecución de
+> referencia.
 
 ## Formato de entrada
 
@@ -127,8 +135,9 @@ Medido en un portátil con CPU, entorno limpio de Python 3.9.25, sobre el índic
 | Recuperación de las 50 consultas | ~11 s (0,23 s/consulta) |
 | **Total** | **~29 s** |
 
-La primera ejecución añade la descarga del encoder (~2,2 GB). En máquinas más rápidas hemos
-medido el total en ~17 s.
+Esa medición corresponde a la variante que resolvía el encoder por HuggingFace. Con el checkpoint
+empaquetado no hay descarga en ninguna ejecución, ni siquiera en la primera. En máquinas más
+rápidas hemos medido el total en ~17 s.
 
 ## Errores comunes
 
